@@ -31,6 +31,7 @@ class CerpenAdapter(
 
     override fun onBindViewHolder(h: VH, pos: Int) {
         val c = items[pos]
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
         h.judul.text = c.judul
         h.judul.setTextColor(palette.ink)
         h.judul.textSize = 17f * textScale
@@ -78,6 +79,7 @@ class NewsAdapter(
 
     override fun onBindViewHolder(h: VH, pos: Int) {
         val a = items[pos]
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
         h.title.text = a.title
         h.title.setTextColor(palette.ink)
         h.title.textSize = 15f * textScale
@@ -124,6 +126,7 @@ class HistoryAdapter(
 
     override fun onBindViewHolder(h: VH, pos: Int) {
         val (cerpen, season, ep) = items[pos]
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
         h.title.text = "${cerpen.judul} — ${ep.judul}"
         h.title.setTextColor(palette.ink)
         h.title.textSize = 15f * textScale
@@ -190,6 +193,7 @@ class EpisodeAdapter(
                 if (s.episodes.contains(row)) { seasonNo = s.season; break }
             }
             h.no.text = row.no.toString()
+            h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
             val marked = ProgressStore.isBookmarked(h.itemView.context, cerpen.id, seasonNo, row.no)
             h.judul.text = if (marked) "🔖 ${row.judul}" else row.judul
             h.judul.setTextColor(palette.ink)
@@ -197,7 +201,6 @@ class EpisodeAdapter(
             val done = ProgressStore.isDone(h.itemView.context, cerpen.id, seasonNo, row.no)
             h.status.text = if (done) "Sudah dibaca ✓" else "Belum dibaca"
             h.status.setTextColor(palette.muted)
-            h.status.alpha = if (done) 1f else 0.55f
             h.itemView.setOnClickListener { onClick(seasonNo, row) }
         }
     }

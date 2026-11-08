@@ -138,6 +138,8 @@ class MainActivity : AppCompatActivity() {
         continueMeta.setTextColor(palette.muted)
         searchInput.setTextColor(palette.ink)
         searchInput.setHintTextColor(palette.muted)
+        searchInput.background = ThemeHelper.cardBackground(this, palette)
+        continueSection.background = ThemeHelper.cardBackground(this, palette)
         showTab(selectedTab)
     }
 
@@ -153,7 +155,7 @@ class MainActivity : AppCompatActivity() {
     private fun styleTabButton(button: Button, selected: Boolean, palette: ThemePalette) {
         if (selected) {
             button.setBackgroundColor(palette.accent)
-            button.setTextColor(android.graphics.Color.WHITE)
+            button.setTextColor(palette.onAccent)
         } else {
             button.setBackgroundColor(palette.card)
             button.setTextColor(palette.accent)
@@ -202,8 +204,19 @@ class MainActivity : AppCompatActivity() {
             val chip = Button(this).apply {
                 text = g
                 textSize = 13f
+                isSingleLine = true
+                // BUG 3: Button bawaan punya minWidth 88dp/minHeight 48dp dan
+                // padding 0 begitu setBackgroundColor() mengganti background
+                // 9-patch bawaan (yang memberi inset) dengan ColorDrawable —
+                // teks menempel/terpotong di tepi chip. Nol-kan minimum
+                // bawaan dan beri padding eksplisit agar lebar chip selalu
+                // = lebar teks + padding, untuk SEMUA genre.
+                minimumWidth = 0
+                minimumHeight = 0
+                val d = resources.displayMetrics.density
+                setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
                 setTextColor(
-                    if (g == selectedGenre) android.graphics.Color.WHITE
+                    if (g == selectedGenre) palette.onAccent
                     else palette.accent
                 )
                 setBackgroundColor(

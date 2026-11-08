@@ -2,6 +2,7 @@ package com.hozinking.cerpen
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.View
 
 /** Palet warna satu tema baca (dipakai semua layar, bukan hanya Reader). */
@@ -13,6 +14,8 @@ data class ThemePalette(
     val titleInk: Int,
     val card: Int,
     val accent: Int,
+    /** Warna teks di atas permukaan berisi accent (tombol/tab/chip terpilih). */
+    val onAccent: Int,
     val cardBorder: Int
 )
 
@@ -32,16 +35,18 @@ object ThemeHelper {
             titleInk = Color.parseColor("#F5F1EA"),
             card = Color.parseColor("#1E1C1A"),
             accent = Color.parseColor("#2BB59C"),
+            onAccent = Color.parseColor("#121110"),
             cardBorder = Color.parseColor("#3A352F")
         )
         ProgressStore.THEME_SEPIA -> ThemePalette(
             bg = Color.parseColor("#F4ECD8"),
             ink = Color.parseColor("#4A4238"),
             inkSoft = Color.parseColor("#4A4238"),
-            muted = Color.parseColor("#8A7D68"),
+            muted = Color.parseColor("#6B5D4A"),
             titleInk = Color.parseColor("#2E2820"),
             card = Color.parseColor("#FBF6E9"),
             accent = Color.parseColor("#0F766E"),
+            onAccent = Color.parseColor("#FFFFFF"),
             cardBorder = Color.parseColor("#E0D5BE")
         )
         else -> ThemePalette( // THEME_DAY — sama persis dengan colors.xml v1.0
@@ -52,6 +57,7 @@ object ThemeHelper {
             titleInk = Color.parseColor("#1C1B1A"),
             card = Color.parseColor("#FFFFFF"),
             accent = Color.parseColor("#0F766E"),
+            onAccent = Color.parseColor("#FFFFFF"),
             cardBorder = Color.parseColor("#E5DFD6")
         )
     }
@@ -62,5 +68,23 @@ object ThemeHelper {
 
     fun applyRootBackground(view: View, theme: Int) {
         view.setBackgroundColor(palette(theme).bg)
+    }
+
+    /**
+     * Background kartu mengikuti tema (isi + border + radius 12dp, sama
+     * seperti card_bg.xml). Dipakai semua permukaan kartu — daftar cerpen /
+     * berita / riwayat / episode, kolom cari, seksi Lanjutkan Membaca —
+     * karena drawable XML statis (card_bg selalu putih, card_accent selalu
+     * mint terang) sementara warna teks mengikuti palet: di tema Malam teks
+     * terang di atas kartu terang jadi tak terbaca.
+     */
+    fun cardBackground(context: Context, palette: ThemePalette): GradientDrawable {
+        val d = context.resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(palette.card)
+            setStroke((1f * d).toInt(), palette.cardBorder)
+            cornerRadius = 12f * d
+        }
     }
 }

@@ -61,6 +61,95 @@ data class NewsArticle(
     val details: String = ""
 )
 
+/** Ubah nilai `details` mentah (String / JSONObject / JSONArray / null) jadi teks bacaan rapi.
+ *  Latar: `JSONObject.optString("details")` pada JSONObject mengembalikan `toString()` mentah
+ *  (dengan escape `\/`), sehingga isi artikel tampil sebagai JSON di layar. Formatter ini
+ *  murni org.json — tanpa dependensi Android — supaya bisa di-unit-test di JVM. */
+object NewsDetailsFormatter {
+
+    private val SECTION_TITLES = mapOf(
+        "prancis" to "Prancis",
+        "malaysia" to "Malaysia",
+        "jepang" to "Jepang",
+        "indonesia" to "Indonesia",
+        "video_sumber" to "Sumber Video",
+        "bssn_advisory" to "Imbauan BSSN",
+        "hirudo" to "Malware Hirudo",
+        "klarifikasi_bank_indonesia" to "Klarifikasi: Bank Indonesia",
+        "tips_aman" to "Tips Aman",
+        "sumber_verifikasi" to "Sumber Verifikasi",
+        "status_verifikasi" to "Status Verifikasi"
+    )
+
+    fun format(value: Any?): String = when (value) {
+        null, JSONObject.NULL -> ""
+        is String -> value
+        is JSONObject -> buildString { formatObject(this, value) }
+        is JSONArray -> buildString { formatList(this, value) }
+        else -> value.toString()
+    }
+
+    /** Tiap key jadi judul seksi di baris sendiri, dipisah baris kosong. */
+    private fun formatObject(sb: StringBuilder, obj: JSONObject) {
+        var first = true
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val v = obj.opt(key)
+            if (v == null || v == JSONObject.NULL) continue
+            if (!first) sb.append("\n\n")
+            first = false
+            sb.append(sectionTitle(key)).append("\n")
+            appendValue(sb, v)
+        }
+    }
+
+    /** String = paragraf; dict bersarang = "label: isi" per baris; list = bullet. */
+    private fun appendValue(sb: StringBuilder, value: Any?) {
+        when (value) {
+            is String -> sb.append(value)
+            is JSONObject -> {
+                var first = true
+                val keys = value.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = value.opt(k)
+                    if (v == null || v == JSONObject.NULL) continue
+                    if (!first) sb.append("\n")
+                    first = false
+                    if (v is JSONObject || v is JSONArray) {
+                        sb.append(humanize(k)).append(":\n")
+                        appendValue(sb, v)
+                    } else {
+                        sb.append(humanize(k)).append(": ").append(v.toString())
+                    }
+                }
+            }
+            is JSONArray -> formatList(sb, value)
+            JSONObject.NULL, null -> Unit
+            else -> sb.append(value.toString())
+        }
+    }
+
+    private fun formatList(sb: StringBuilder, arr: JSONArray) {
+        var first = true
+        for (i in 0 until arr.length()) {
+            val v = arr.opt(i)
+            if (v == null || v == JSONObject.NULL) continue
+            if (!first) sb.append("\n")
+            first = false
+            sb.append("• ")
+            appendValue(sb, v)
+        }
+    }
+
+    fun sectionTitle(key: String): String = SECTION_TITLES[key] ?: humanize(key)
+
+    private fun humanize(key: String): String =
+        key.split("_").filter { it.isNotEmpty() }
+            .joinToString(" ") { it.replaceFirstChar(Char::titlecase) }
+}
+
 /** Parser cerpen.json + news.json (org.json, tanpa dependensi). */
 object ContentLoader {
 
@@ -132,7 +221,7 @@ object ContentLoader {
                         date = o.optString("date", ""),
                         image = single,
                         images = imgs,
-                        details = o.optString("details", "")
+                        details = NewsDetailsFormatter.format(o.opt("details"))
                     )
                 )
             }

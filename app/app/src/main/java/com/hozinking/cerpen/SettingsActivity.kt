@@ -97,7 +97,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun styleThemeButton(button: Button, selected: Boolean, palette: ThemePalette) {
         if (selected) {
             button.setBackgroundColor(palette.accent)
-            button.setTextColor(android.graphics.Color.WHITE)
+            button.setTextColor(palette.onAccent)
         } else {
             button.setBackgroundColor(palette.card)
             button.setTextColor(palette.accent)
