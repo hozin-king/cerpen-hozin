@@ -20,9 +20,10 @@ import java.net.URL
  * PROTEKSI KONTEN (v1.2, lihat CONTENT_PROTECTION.md):
  * - TIDAK ADA plaintext di assets maupun di internal storage. Yang
  *   di-bundle hanya file `.enc` (AES-256-GCM, IV 12B + ciphertext+tag):
- *   `cerpen.json.enc`, `news.json.enc`, `manifest.json.enc`,
+ *   `cerpen.json.enc`, `news.json.enc`, `komik.json.enc`, `manifest.json.enc`,
  *   gambar cover dan berita (tiap file berekstensi .enc di bawah
- *   covers/ dan news/img/). Manifest berisi SHA-256 plaintext
+ *   covers/ dan news/img/) serta gambar komik (komik/covers/ dan
+ *   komik/panels/). Manifest berisi SHA-256 plaintext
  *   tiap aset — manifestnya sendiri terenkripsi (tag GCM yang
  *   mengautentikasinya).
  * - DataManager: baca manifest terenkripsi -> dekripsi .enc (kunci dari
@@ -66,9 +67,16 @@ object DataManager {
     private fun newsImgDir(context: Context): File =
         File(dataDir(context), "news/img").apply { if (!exists()) mkdirs() }
 
+    private fun komikCoversDir(context: Context): File =
+        File(dataDir(context), "komik/covers").apply { if (!exists()) mkdirs() }
+
+    private fun komikPanelsDir(context: Context): File =
+        File(dataDir(context), "komik/panels").apply { if (!exists()) mkdirs() }
+
     /** File .enc di internal storage (satu-satunya salinan di disk). */
     private fun cerpenEncFile(context: Context): File = File(dataDir(context), "cerpen.json.enc")
     private fun newsEncFile(context: Context): File = File(dataDir(context), "news.json.enc")
+    private fun komikEncFile(context: Context): File = File(dataDir(context), "komik.json.enc")
     private fun manifestEncFile(context: Context): File = File(dataDir(context), "manifest.json.enc")
 
     /** Jalur plaintext LEGASI (v1.1) — hanya dipakai migrasi penghapusan. */
@@ -76,9 +84,12 @@ object DataManager {
         val out = ArrayList<File>()
         out += File(dataDir(context), "cerpen.json")
         out += File(dataDir(context), "news.json")
+        out += File(dataDir(context), "komik.json")
         out += File(dataDir(context), "manifest.json")
         coversDir(context).listFiles()?.forEach { if (!it.name.endsWith(".enc")) out += it }
         newsImgDir(context).listFiles()?.forEach { if (!it.name.endsWith(".enc")) out += it }
+        komikCoversDir(context).listFiles()?.forEach { if (!it.name.endsWith(".enc")) out += it }
+        komikPanelsDir(context).listFiles()?.forEach { if (!it.name.endsWith(".enc")) out += it }
         return out
     }
 
@@ -89,6 +100,7 @@ object DataManager {
             copyAssetIfMissing(context, "manifest.json.enc", manifestEncFile(context))
             copyAssetIfMissing(context, "cerpen.json.enc", cerpenEncFile(context))
             copyAssetIfMissing(context, "news.json.enc", newsEncFile(context))
+            copyAssetIfMissing(context, "komik.json.enc", komikEncFile(context))
             val covers = context.assets.list("covers") ?: emptyArray()
             for (name in covers) {
                 if (!name.endsWith(".enc")) continue
@@ -98,6 +110,16 @@ object DataManager {
             for (name in newsImgs) {
                 if (!name.endsWith(".enc")) continue
                 copyAssetIfMissing(context, "news/img/$name", File(newsImgDir(context), name))
+            }
+            val komikCovers = context.assets.list("komik/covers") ?: emptyArray()
+            for (name in komikCovers) {
+                if (!name.endsWith(".enc")) continue
+                copyAssetIfMissing(context, "komik/covers/$name", File(komikCoversDir(context), name))
+            }
+            val komikPanels = context.assets.list("komik/panels") ?: emptyArray()
+            for (name in komikPanels) {
+                if (!name.endsWith(".enc")) continue
+                copyAssetIfMissing(context, "komik/panels/$name", File(komikPanelsDir(context), name))
             }
             migratePlaintextAway(context)
         } catch (e: Exception) {
@@ -125,7 +147,7 @@ object DataManager {
                     // Gambar/manifest: tag GCM cukup (dekripsi sukses = valid).
                     valid = ContentCrypto.decrypt(enc, key) != null
                     // JSON: verifikasi penuh (dekripsi + SHA lawan manifest).
-                    if (valid && (plain.name == "cerpen.json" || plain.name == "news.json")) {
+                    if (valid && (plain.name == "cerpen.json" || plain.name == "news.json" || plain.name == "komik.json")) {
                         val entry = loadManifest(context)?.optJSONObject(plain.name)
                         val sha = entry?.optString("sha256", "")
                         valid = !sha.isNullOrEmpty() &&
@@ -340,9 +362,21 @@ object DataManager {
         }
     }
 
+    /** Baca komik: .enc terverifikasi, fallback plaintext transisi. Kosong bila file belum ada. */
+    fun loadKomik(context: Context): List<Komik> {
+        val text = loadVerifiedText(context, "komik.json") ?: return emptyList()
+        return try {
+            ContentLoader.parseKomik(text)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
     /**
-     * Dekripsi satu gambar (cover / berita) jadi byte array di memori.
-     * [assetPath] berbentuk "covers/cover_01.jpg" atau "news/img/xxx.jpg".
+     * Dekripsi satu gambar (cover / berita / komik) jadi byte array di memori.
+     * [assetPath] berbentuk "covers/cover_01.jpg", "news/img/xxx.jpg",
+     * "komik/covers/xxx.jpg" atau "komik/panels/xxx.jpg".
      * Sumber: file .enc internal dulu, lalu aset .enc. Verifikasi SHA
      * lawan manifest bila entrinya ada (tag GCM selalu diperiksa).
      * Fallback plaintext masa transisi dicatat di log. TIDAK PERNAH
@@ -369,12 +403,9 @@ object DataManager {
             }
         }
         // Fallback masa transisi: plaintext (internal / aset).
-        val plainName = assetPath.substringAfterLast("/")
-        val plainFile = if (assetPath.startsWith("covers/")) {
-            File(coversDir(context), plainName)
-        } else {
-            File(newsImgDir(context), plainName)
-        }
+        // Jalur generik di bawah dataDir — berlaku untuk covers/,
+        // news/img/, komik/covers/ dan komik/panels/.
+        val plainFile = File(dataDir(context), assetPath)
         if (plainFile.exists() && plainFile.length() > 0) {
             Log.w(TAG, "$assetPath: fallback PLAINTEXT internal (masa transisi)")
             return try {
@@ -481,6 +512,8 @@ object DataManager {
                 changed = syncOneEncrypted(context, manifest, "cerpen.json", key) || changed
                 // 3. news.json.enc
                 changed = syncOneEncrypted(context, manifest, "news.json", key) || changed
+                // 4. komik.json.enc (+ cover & panel komik, di dalam syncOneEncrypted)
+                changed = syncOneEncrypted(context, manifest, "komik.json", key) || changed
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -515,6 +548,20 @@ object DataManager {
                 for (c in parsed) {
                     if (c.cover.isNotEmpty()) {
                         syncOneImage(context, manifest, "covers/${c.cover}", key)
+                    }
+                }
+            } else if (jsonName == "komik.json") {
+                val parsed = ContentLoader.parseKomik(text)
+                for (k in parsed) {
+                    if (k.cover.isNotEmpty()) {
+                        syncOneImage(context, manifest, "komik/covers/${k.cover}", key)
+                    }
+                    for (e in k.episodes) {
+                        for (p in e.panels) {
+                            if (p.image.isNotEmpty()) {
+                                syncOneImage(context, manifest, "komik/panels/${p.image}", key)
+                            }
+                        }
                     }
                 }
             } else {

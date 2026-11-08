@@ -207,3 +207,87 @@ class EpisodeAdapter(
 
     override fun getItemCount(): Int = rows.size
 }
+
+/** Daftar komik di Home (tab Komik) — memakai item cerpen yang sama. */
+class KomikAdapter(
+    private val items: List<Komik>,
+    private val onClick: (Komik) -> Unit,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
+) : RecyclerView.Adapter<KomikAdapter.VH>() {
+
+    class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val cover: ImageView = v.findViewById(R.id.cover)
+        val judul: TextView = v.findViewById(R.id.judul)
+        val genre: TextView = v.findViewById(R.id.genre)
+        val meta: TextView = v.findViewById(R.id.meta)
+        val desc: TextView = v.findViewById(R.id.deskripsi)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        val v = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_cerpen, parent, false)
+        return VH(v)
+    }
+
+    override fun onBindViewHolder(h: VH, pos: Int) {
+        val k = items[pos]
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
+        h.judul.text = k.judul
+        h.judul.setTextColor(palette.ink)
+        h.judul.textSize = 17f * textScale
+        h.genre.text = k.genre
+        h.genre.setTextColor(palette.accent)
+        h.meta.text = "${k.totalEpisodes} episode · ${k.totalPanels} panel"
+        h.meta.setTextColor(palette.muted)
+        h.desc.text = k.deskripsi
+        h.desc.setTextColor(palette.inkSoft)
+        h.desc.textSize = 14f * textScale
+        val bmp = if (k.cover.isNotEmpty()) {
+            CoverCache.get(h.itemView.context, "komik/covers/${k.cover}", 300)
+        } else null
+        if (bmp != null) {
+            h.cover.setImageBitmap(bmp)
+        } else {
+            h.cover.setImageResource(R.drawable.cover_placeholder)
+        }
+        h.itemView.setOnClickListener { onClick(k) }
+    }
+
+    override fun getItemCount(): Int = items.size
+}
+
+/** Daftar episode di halaman detail komik — memakai item episode yang sama. */
+class KomikEpisodeAdapter(
+    private val komik: Komik,
+    private val onClick: (KomikEpisode) -> Unit,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
+) : RecyclerView.Adapter<KomikEpisodeAdapter.VH>() {
+
+    class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val no: TextView = v.findViewById(R.id.ep_no)
+        val judul: TextView = v.findViewById(R.id.ep_judul)
+        val status: TextView = v.findViewById(R.id.ep_status)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        val v = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_episode, parent, false)
+        return VH(v)
+    }
+
+    override fun onBindViewHolder(h: VH, pos: Int) {
+        val e = komik.episodes[pos]
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
+        h.no.text = e.no.toString()
+        h.judul.text = e.judul
+        h.judul.setTextColor(palette.ink)
+        h.judul.textSize = 16f * textScale
+        h.status.text = "${e.panels.size} panel"
+        h.status.setTextColor(palette.muted)
+        h.itemView.setOnClickListener { onClick(e) }
+    }
+
+    override fun getItemCount(): Int = komik.episodes.size
+}

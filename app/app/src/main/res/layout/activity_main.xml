@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- v1.2: root diganti jadi SwipeRefreshLayout (pull-to-refresh) yang
-     membungkus ScrollView lama — satu tempat, berlaku dua tab.
+     membungkus ScrollView lama — satu tempat, berlaku tiga tab.
      Tab Cerpen = UI cerpen v1.0 (cari, filter genre, lanjutkan membaca,
      riwayat, bookmark, semua cerpen). Tab Berita = hanya daftar berita.
-     Tombol "Perbarui Konten" + footer tetap di bawah (berlaku dua tab). -->
+     Tab Komik = hanya daftar komik.
+     Tombol "Perbarui Konten" + footer tetap di bawah (berlaku tiga tab). -->
 <androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/swipe_refresh"
     android:layout_width="match_parent"
@@ -62,7 +63,7 @@
             android:layout_marginTop="24dp"
             android:visibility="gone" />
 
-        <!-- Tab Cerpen | Berita -->
+        <!-- Tab Cerpen | Berita | Komik -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -84,6 +85,15 @@
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
                 android:text="Berita"
+                android:textColor="@color/white" />
+
+            <Button
+                android:id="@+id/tab_komik_button"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Komik"
                 android:textColor="@color/white" />
         </LinearLayout>
 
@@ -269,6 +279,41 @@
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/news_list"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:nestedScrollingEnabled="false" />
+        </LinearLayout>
+
+        <!-- ============ TAB KOMIK ============ -->
+        <LinearLayout
+            android:id="@+id/komik_tab"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/komik_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Komik"
+                android:textColor="@color/ink"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/komik_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Gambar komik diunduh saat Perbarui Konten"
+                android:textColor="@color/muted"
+                android:textSize="13sp" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/komik_list"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"

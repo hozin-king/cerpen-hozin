@@ -46,6 +46,32 @@ data class Cerpen(
     }
 }
 
+/** Satu panel komik: gambar webtoon (tanpa teks di dalam gambar) + dialog/keterangan terpisah. */
+data class KomikPanel(
+    val image: String,
+    val teks: String
+)
+
+data class KomikEpisode(
+    val no: Int,
+    val judul: String,
+    val panels: List<KomikPanel>
+)
+
+data class Komik(
+    val id: String,
+    val judul: String,
+    val genre: String,
+    val deskripsi: String,
+    val cover: String,
+    val episodes: List<KomikEpisode>
+) {
+    val totalEpisodes: Int get() = episodes.size
+    val totalPanels: Int get() = episodes.sumOf { it.panels.size }
+
+    fun episode(no: Int): KomikEpisode? = episodes.firstOrNull { it.no == no }
+}
+
 data class NewsArticle(
     val title: String,
     val summary: String,
@@ -147,8 +173,55 @@ object NewsDetailsFormatter {
             .joinToString(" ") { it.replaceFirstChar(Char::titlecase) }
 }
 
-/** Parser cerpen.json + news.json (org.json, tanpa dependensi). */
+/** Parser cerpen.json + news.json + komik.json (org.json, tanpa dependensi). */
 object ContentLoader {
+
+    fun parseKomik(text: String): List<Komik> {
+        val out = ArrayList<Komik>()
+        try {
+            val root = JSONObject(text)
+            val arr = root.optJSONArray("komik") ?: JSONArray()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                val eps = ArrayList<KomikEpisode>()
+                val eArr = o.optJSONArray("episodes") ?: JSONArray()
+                for (j in 0 until eArr.length()) {
+                    val e = eArr.getJSONObject(j)
+                    val panels = ArrayList<KomikPanel>()
+                    val pArr = e.optJSONArray("panels") ?: JSONArray()
+                    for (k in 0 until pArr.length()) {
+                        val p = pArr.getJSONObject(k)
+                        panels.add(
+                            KomikPanel(
+                                image = p.optString("image", ""),
+                                teks = p.optString("teks", "")
+                            )
+                        )
+                    }
+                    eps.add(
+                        KomikEpisode(
+                            no = e.optInt("no", j + 1),
+                            judul = e.optString("judul", "Episode ${j + 1}"),
+                            panels = panels
+                        )
+                    )
+                }
+                out.add(
+                    Komik(
+                        id = o.optString("id", "komik-$i"),
+                        judul = o.optString("judul", "Tanpa Judul"),
+                        genre = o.optString("genre", ""),
+                        deskripsi = o.optString("deskripsi", ""),
+                        cover = o.optString("cover", ""),
+                        episodes = eps
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return out
+    }
 
     fun parseCerpen(text: String): List<Cerpen> {
         val out = ArrayList<Cerpen>()

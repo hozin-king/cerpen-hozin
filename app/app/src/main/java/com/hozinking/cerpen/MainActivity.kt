@@ -25,13 +25,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsButton: Button
     private lateinit var tabCerpenButton: Button
     private lateinit var tabBeritaButton: Button
+    private lateinit var tabKomikButton: Button
     private lateinit var cerpenTab: LinearLayout
     private lateinit var newsTab: LinearLayout
+    private lateinit var komikTab: LinearLayout
     private lateinit var historyTitle: TextView
     private lateinit var bookmarkTitle: TextView
     private lateinit var allCerpenTitle: TextView
     private lateinit var newsTitle: TextView
     private lateinit var newsSubtitle: TextView
+    private lateinit var komikTitle: TextView
+    private lateinit var komikSubtitle: TextView
     private lateinit var continueSection: LinearLayout
     private lateinit var continueTitle: TextView
     private lateinit var continueMeta: TextView
@@ -44,15 +48,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bookmarkSection: LinearLayout
     private lateinit var bookmarkList: RecyclerView
     private lateinit var newsList: RecyclerView
+    private lateinit var komikList: RecyclerView
     private lateinit var loading: ProgressBar
     private lateinit var refreshButton: Button
     private lateinit var swipeRefresh: SwipeRefreshLayout
 
     private var cerpenData: List<Cerpen> = emptyList()
     private var newsData: List<NewsArticle> = emptyList()
+    private var komikData: List<Komik> = emptyList()
     private var query: String = ""
     private var selectedGenre: String = "Semua"
-    private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita
+    private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,13 +71,17 @@ class MainActivity : AppCompatActivity() {
         settingsButton = findViewById(R.id.main_settings_button)
         tabCerpenButton = findViewById(R.id.tab_cerpen_button)
         tabBeritaButton = findViewById(R.id.tab_berita_button)
+        tabKomikButton = findViewById(R.id.tab_komik_button)
         cerpenTab = findViewById(R.id.cerpen_tab)
         newsTab = findViewById(R.id.news_tab)
+        komikTab = findViewById(R.id.komik_tab)
         historyTitle = findViewById(R.id.history_title)
         bookmarkTitle = findViewById(R.id.bookmark_title)
         allCerpenTitle = findViewById(R.id.all_cerpen_title)
         newsTitle = findViewById(R.id.news_title)
         newsSubtitle = findViewById(R.id.news_subtitle)
+        komikTitle = findViewById(R.id.komik_title)
+        komikSubtitle = findViewById(R.id.komik_subtitle)
         continueSection = findViewById(R.id.continue_section)
         continueTitle = findViewById(R.id.continue_title)
         continueMeta = findViewById(R.id.continue_meta)
@@ -84,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         bookmarkSection = findViewById(R.id.bookmark_section)
         bookmarkList = findViewById(R.id.bookmark_list)
         newsList = findViewById(R.id.news_list)
+        komikList = findViewById(R.id.komik_list)
         loading = findViewById(R.id.loading)
         refreshButton = findViewById(R.id.refresh_button)
         swipeRefresh = findViewById(R.id.swipe_refresh)
@@ -96,6 +107,7 @@ class MainActivity : AppCompatActivity() {
         historyList.layoutManager = LinearLayoutManager(this)
         bookmarkList.layoutManager = LinearLayoutManager(this)
         newsList.layoutManager = LinearLayoutManager(this)
+        komikList.layoutManager = LinearLayoutManager(this)
 
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
@@ -112,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         }
         tabCerpenButton.setOnClickListener { showTab(0) }
         tabBeritaButton.setOnClickListener { showTab(1) }
+        tabKomikButton.setOnClickListener { showTab(2) }
 
         applyThemeAndFont()
         showTab(selectedTab)
@@ -126,6 +139,9 @@ class MainActivity : AppCompatActivity() {
         showHistoryAndBookmarks()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
+        }
+        if (komikData.isNotEmpty()) {
+            applyKomikList()
         }
     }
 
@@ -144,6 +160,8 @@ class MainActivity : AppCompatActivity() {
         allCerpenTitle.setTextColor(palette.ink)
         newsTitle.setTextColor(palette.ink)
         newsSubtitle.setTextColor(palette.muted)
+        komikTitle.setTextColor(palette.ink)
+        komikSubtitle.setTextColor(palette.muted)
         continueTitle.setTextColor(palette.ink)
         continueMeta.setTextColor(palette.muted)
         searchInput.setTextColor(palette.ink)
@@ -158,8 +176,10 @@ class MainActivity : AppCompatActivity() {
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         cerpenTab.visibility = if (tab == 0) View.VISIBLE else View.GONE
         newsTab.visibility = if (tab == 1) View.VISIBLE else View.GONE
+        komikTab.visibility = if (tab == 2) View.VISIBLE else View.GONE
         styleTabButton(tabCerpenButton, tab == 0, palette)
         styleTabButton(tabBeritaButton, tab == 1, palette)
+        styleTabButton(tabKomikButton, tab == 2, palette)
     }
 
     private fun styleTabButton(button: Button, selected: Boolean, palette: ThemePalette) {
@@ -191,12 +211,15 @@ class MainActivity : AppCompatActivity() {
         Thread {
             val cerpen = DataManager.loadCerpen(this)
             val news = DataManager.loadNews(this)
+            val komik = DataManager.loadKomik(this)
             runOnUiThread {
                 cerpenData = cerpen
                 newsData = news
+                komikData = komik
                 loading.visibility = View.GONE
                 buildGenreChips()
                 applyCerpenFilter()
+                applyKomikList()
                 val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
                 val scale = ThemeHelper.fontScale(this)
                 newsList.adapter = NewsAdapter(news, { openNewsDetail(it) }, palette, scale)
@@ -204,6 +227,18 @@ class MainActivity : AppCompatActivity() {
                 showHistoryAndBookmarks()
             }
         }.start()
+    }
+
+    private fun applyKomikList() {
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val scale = ThemeHelper.fontScale(this)
+        komikList.adapter = KomikAdapter(komikData, { openKomikDetail(it) }, palette, scale)
+    }
+
+    private fun openKomikDetail(komik: Komik) {
+        val i = Intent(this, KomikDetailActivity::class.java)
+        i.putExtra(KomikDetailActivity.EXTRA_KOMIK_ID, komik.id)
+        startActivity(i)
     }
 
     private fun buildGenreChips() {

@@ -43,6 +43,16 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <activity
+            android:name=".KomikDetailActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".KomikReaderActivity"
+            android:exported="false"
+            android:parentActivityName=".KomikDetailActivity" />
+
     </application>
 
 </manifest>

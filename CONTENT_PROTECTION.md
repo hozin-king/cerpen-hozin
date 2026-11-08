@@ -34,6 +34,24 @@ masih plaintext: enkripsi semuanya. Perubahan terhadap v1.1:
 - **Sync GitHub-raw** ikut berubah: mengunduh `manifest.json.enc` (bukan
   `.json`), menyimpan .enc gambar, dan menjalankan migrasi setelah sync.
 
+## v1.1.3 — Komik, gambar on-demand (8 Nov 2026)
+
+- **Konten komik**: `data/komik.json.enc` + `data/komik/covers/` +
+  `data/komik/panels/` (111 file `.enc`), entri manifest
+  `"komik.json"`, `"komik/covers/<nama>"`, `"komik/panels/<nama>"`.
+  Skema + kunci sama (AES-256-GCM, `CERPEN_CONTENT_KEY`).
+- **Gambar komik TIDAK di-bundle ke APK** (on-demand via sync GitHub):
+  `app/app/build.gradle` memakai
+  `androidResources.ignoreAssetsPattern` dengan pola `"!komik-*"`
+  (hanya `komik.json.enc` yang ter-bundle). Pola AGP
+  (`PatternBasedFileFilter`) hanya mendukung SATU `*`, di AWAL atau
+  AKHIR pola — `*` di tengah TIDAK cocok. Tanpa pengecualian ini APK
+  membengkak 13 MB -> ~95 MB. Cerpen/berita tetap ter-bundle seperti
+  sebelumnya.
+- **Sync + reader**: `DataManager` ikut menyinkronkan komik
+  (`komik.json.enc` + gambar) lewat jalur yang sama; reader
+  mendekripsi panel in-memory; plaintext tidak pernah ditulis ke disk.
+
 ## Format (disepakati dengan pipeline, JANGAN ubah sepihak)
 
 | Item | Isi |

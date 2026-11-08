@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "1.1.2"
+        versionCode = 5
+        versionName = "1.1.3"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya
@@ -79,6 +79,17 @@ android {
         // v1.2: BuildConfig.VERSION_NAME dipakai footer versi (Main +
         // Settings) — di AGP 8.5 ini harus diaktifkan eksplisit.
         buildConfig = true
+    }
+
+    androidResources {
+        // v1.1.3: gambar komik TIDAK di-bundle ke APK — diunduh on-demand
+        // lewat sync GitHub. 110 gambar ~70 MB; komik.json.enc tetap
+        // ter-bundle supaya daftar komik langsung tampil. Pola default
+        // aapt dipertahankan, ditambah "!komik-*" (prefix nama file —
+        // PatternBasedFileFilter AGP hanya mendukung '*' di AWAL atau
+        // AKHIR pola, BUKAN di tengah; "komik-*.jpg.enc" TIDAK cocok).
+        // "komik.json.enc" aman (awalan "komik.", bukan "komik-").
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:!komik-*"
     }
 
     // Aset dibaca langsung dari data/ repo (single source of truth) +
