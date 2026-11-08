@@ -88,6 +88,8 @@ class SettingsActivity : AppCompatActivity() {
         sizeValue.setTextColor(palette.ink)
         othersTitle.setTextColor(palette.ink)
         othersNote.setTextColor(palette.muted)
+        // v1.2: versi asli dari BuildConfig (bukan hardcode).
+        versionText.text = "Cerpen Hozin v${BuildConfig.VERSION_NAME}"
         versionText.setTextColor(palette.muted)
         styleThemeButton(dayButton, theme == ProgressStore.THEME_DAY, palette)
         styleThemeButton(nightButton, theme == ProgressStore.THEME_NIGHT, palette)

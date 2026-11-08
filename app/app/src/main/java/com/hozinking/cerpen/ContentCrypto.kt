@@ -17,6 +17,19 @@ object ContentCrypto {
     private const val IV_LEN = 12
     private const val TAG_BITS = 128
 
+    /**
+     * Log aman untuk unit test JVM: android.util.Log melempar "Stub!" di
+     * JVM (bukan perangkat), jadi dibungkus agar fungsi kripto tetap
+     * bisa diuji. Di perangkat, Log tetap tertulis normal.
+     */
+    private fun logW(msg: String) {
+        try {
+            Log.w(TAG, msg)
+        } catch (_: RuntimeException) {
+            // JVM unit test — android stub, abaikan.
+        }
+    }
+
     fun sha256Hex(bytes: ByteArray): String {
         val d = MessageDigest.getInstance("SHA-256").digest(bytes)
         return d.joinToString("") { "%02x".format(it) }
@@ -34,9 +47,24 @@ object ContentCrypto {
             )
             cipher.doFinal(enc, IV_LEN, enc.size - IV_LEN)
         } catch (e: Exception) {
-            Log.w(TAG, "dekripsi gagal: ${e.message}")
+            logW("dekripsi gagal: ${e.message}")
             null
         }
+    }
+
+    /**
+     * Dekripsi + verifikasi SHA-256(plaintext) terhadap manifest.
+     * Mengembalikan byte plaintext bila cocok, null bila dekripsi gagal
+     * atau SHA tidak cocok (konten rusak / dimodifikasi). Dipakai untuk
+     * JSON (lalu jadi String) maupun gambar (lalu jadi Bitmap).
+     */
+    fun decryptVerifiedBytes(enc: ByteArray, key: ByteArray, expectedSha256: String): ByteArray? {
+        val plain = decrypt(enc, key) ?: return null
+        if (!sha256Hex(plain).equals(expectedSha256, ignoreCase = true)) {
+            logW("SHA tidak cocok (manifest vs hasil dekripsi)")
+            return null
+        }
+        return plain
     }
 
     /**
@@ -45,16 +73,11 @@ object ContentCrypto {
      * SHA tidak cocok (konten rusak / dimodifikasi).
      */
     fun decryptVerified(enc: ByteArray, key: ByteArray, expectedSha256: String): String? {
-        val plain = decrypt(enc, key) ?: return null
-        val sha = sha256Hex(plain)
-        if (!sha.equals(expectedSha256, ignoreCase = true)) {
-            Log.w(TAG, "SHA tidak cocok (manifest vs hasil dekripsi)")
-            return null
-        }
+        val plain = decryptVerifiedBytes(enc, key, expectedSha256) ?: return null
         return try {
             String(plain, Charsets.UTF_8)
         } catch (e: Exception) {
-            Log.w(TAG, "plaintext bukan UTF-8 valid")
+            logW("plaintext bukan UTF-8 valid")
             null
         }
     }

@@ -1,13 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v1.1: cerpen dan berita dipisah jadi dua tab ("Cerpen" | "Berita").
+<!-- v1.2: root diganti jadi SwipeRefreshLayout (pull-to-refresh) yang
+     membungkus ScrollView lama — satu tempat, berlaku dua tab.
      Tab Cerpen = UI cerpen v1.0 (cari, filter genre, lanjutkan membaca,
      riwayat, bookmark, semua cerpen). Tab Berita = hanya daftar berita.
      Tombol "Perbarui Konten" + footer tetap di bawah (berlaku dua tab). -->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/swipe_refresh"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/paper"
-    android:fillViewport="true">
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/paper"
+        android:fillViewport="true">
 
     <LinearLayout
         android:id="@+id/main_root"
@@ -278,14 +284,17 @@
             android:text="Perbarui Konten"
             android:textColor="@color/white" />
 
+        <!-- v1.2: angka versi DIHAPUS dari layout — diisi runtime dari
+             BuildConfig.VERSION_NAME (MainActivity) agar selalu benar. -->
         <TextView
             android:id="@+id/app_footer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:text="Cerpen Hozin v1.1 · semua konten tersimpan di perangkat"
+            android:text="Cerpen Hozin · semua konten tersimpan di perangkat"
             android:textColor="@color/muted"
             android:textSize="12sp" />
 
     </LinearLayout>
-</ScrollView>
+    </ScrollView>
+</androidx.swiperefreshlayout.widget.SwipeRefreshLayout>

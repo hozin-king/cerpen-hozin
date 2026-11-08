@@ -58,23 +58,37 @@ jobs:
           echo "::add-mask::$KEY_B64"
           echo "CERPEN_CONTENT_KEY=$KEY_B64" >> "$GITHUB_ENV"
 
-      - name: Build debug APK
+      - name: Prepare release keystore
+        env:
+          CERPEN_KEYSTORE_BASE64: ${{ secrets.CERPEN_KEYSTORE_BASE64 }}
+          CERPEN_KEYSTORE_PASSWORD: ${{ secrets.CERPEN_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$CERPEN_KEYSTORE_BASE64" ] || [ -z "$CERPEN_KEYSTORE_PASSWORD" ]; then
+            echo "Secret keystore rilis belum dibuat/kosong — build dibatalkan." >&2
+            exit 1
+          fi
+          printf '%s' "$CERPEN_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/cerpen-release.keystore"
+          echo "CERPEN_KEYSTORE_FILE=$RUNNER_TEMP/cerpen-release.keystore" >> "$GITHUB_ENV"
+          echo "::add-mask::$CERPEN_KEYSTORE_PASSWORD"
+          echo "CERPEN_KEYSTORE_PASSWORD=$CERPEN_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Build release APK
         run: |
           cd app
           GRADLE_BIN=$(ls /opt/hostedtoolcache/gradle/*/x64/bin/gradle 2>/dev/null | sort -V | tail -1)
           if [ -n "$GRADLE_BIN" ]; then
             echo "Using cached Gradle: $GRADLE_BIN"
-            "$GRADLE_BIN" assembleDebug --stacktrace
+            "$GRADLE_BIN" assembleRelease --stacktrace
           else
             echo "No cached Gradle found, falling back to wrapper"
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew assembleRelease --stacktrace
           fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CerpenHozin-debug
-          path: app/app/build/outputs/apk/debug/app-debug.apk
+          name: CerpenHozin-release
+          path: app/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
 
       - name: Create version tag
@@ -88,7 +102,12 @@ jobs:
             echo "Tag v$APP_VERSION dibuat."
           fi
 
-      - name: Create GitHub Release
+      - name: Rename APK for release
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          cp app/app/build/outputs/apk/release/app-release.apk "CerpenHozin-v$APP_VERSION.apk"
+
+      - name: Publish GitHub Release
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
@@ -96,4 +115,4 @@ jobs:
           name: Cerpen Hozin v${{ env.APP_VERSION }}
           generate_release_notes: true
           make_latest: true
-          files: app/app/build/outputs/apk/debug/app-debug.apk
+          files: CerpenHozin-v${{ env.APP_VERSION }}.apk

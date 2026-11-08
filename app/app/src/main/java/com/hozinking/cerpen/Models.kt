@@ -6,9 +6,6 @@ import android.graphics.BitmapFactory
 import android.util.LruCache
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.File
-import java.io.InputStreamReader
 
 data class Episode(
     val no: Int,
@@ -231,31 +228,12 @@ object ContentLoader {
         return out
     }
 
-    fun loadCerpenFromAssets(context: Context): List<Cerpen> {
-        val text = readAsset(context, "cerpen.json") ?: return emptyList()
-        return parseCerpen(text)
-    }
-
-    fun loadNewsFromAssets(context: Context): List<NewsArticle> {
-        val text = readAsset(context, "news.json") ?: return emptyList()
-        return parseNews(text)
-    }
-
-    private fun readAsset(context: Context, name: String): String? {
-        return try {
-            context.assets.open(name).use { input ->
-                BufferedReader(InputStreamReader(input, Charsets.UTF_8)).readText()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
 }
 
 /**
  * Cache bitmap sampul/berita dengan downsampling agar anti-lag.
- * Sumber: penyimpanan internal dulu (hasil sync / salinan aset), fallback ke aset.
+ * Sumber: byte hasil dekripsi in-memory (DataManager.decryptImageBytes)
+ * — tidak pernah ada file JPG plaintext di disk.
  */
 object CoverCache {
     private val cache: LruCache<String, Bitmap> =
@@ -272,22 +250,16 @@ object CoverCache {
         return bmp
     }
 
+    /**
+     * Gambar selalu didekripsi in-memory (DataManager.decryptImageBytes)
+     * lalu di-decode dari byte array — tidak pernah ada file JPG
+     * plaintext di disk.
+     */
     private fun decodeSampled(context: Context, assetPath: String, reqWidth: Int): Bitmap? {
-        // 1. Coba file lokal (internal storage) dulu.
-        val local: File? = when {
-            assetPath.startsWith("covers/") ->
-                DataManager.coverLocalFile(context, assetPath.removePrefix("covers/"))
-            assetPath.startsWith("news/") ->
-                DataManager.newsImageLocalFile(context, assetPath.removePrefix("news/"))
-            else -> null
-        }
-        if (local != null) {
-            decodeFile(local, reqWidth)?.let { return it }
-        }
-        // 2. Fallback ke aset.
+        val bytes = DataManager.decryptImageBytes(context, assetPath) ?: return null
         return try {
             val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            context.assets.open(assetPath).use { BitmapFactory.decodeStream(it, null, opts) }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
             var sample = 1
             val w = opts.outWidth
             while (w / (sample * 2) >= reqWidth && sample < 8) sample *= 2
@@ -295,25 +267,7 @@ object CoverCache {
                 inSampleSize = sample
                 inPreferredConfig = Bitmap.Config.RGB_565
             }
-            context.assets.open(assetPath).use { BitmapFactory.decodeStream(it, null, opts2) }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    private fun decodeFile(file: File, reqWidth: Int): Bitmap? {
-        return try {
-            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(file.absolutePath, opts)
-            var sample = 1
-            val w = opts.outWidth
-            while (w / (sample * 2) >= reqWidth && sample < 8) sample *= 2
-            val opts2 = BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.RGB_565
-            }
-            BitmapFactory.decodeFile(file.absolutePath, opts2)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts2)
         } catch (e: Exception) {
             e.printStackTrace()
             null

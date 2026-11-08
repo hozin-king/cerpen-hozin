@@ -14,6 +14,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 class MainActivity : AppCompatActivity() {
 
@@ -45,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var newsList: RecyclerView
     private lateinit var loading: ProgressBar
     private lateinit var refreshButton: Button
+    private lateinit var swipeRefresh: SwipeRefreshLayout
 
     private var cerpenData: List<Cerpen> = emptyList()
     private var newsData: List<NewsArticle> = emptyList()
@@ -84,6 +86,11 @@ class MainActivity : AppCompatActivity() {
         newsList = findViewById(R.id.news_list)
         loading = findViewById(R.id.loading)
         refreshButton = findViewById(R.id.refresh_button)
+        swipeRefresh = findViewById(R.id.swipe_refresh)
+
+        // v1.2: pull-to-refresh memakai jalur sync yang SAMA dengan tombol
+        // "Perbarui Konten" (syncNow) — tidak ada jalur sync kedua.
+        swipeRefresh.setOnRefreshListener { syncNow() }
 
         cerpenList.layoutManager = LinearLayoutManager(this)
         historyList.layoutManager = LinearLayoutManager(this)
@@ -129,6 +136,9 @@ class MainActivity : AppCompatActivity() {
         appTitle.setTextColor(palette.titleInk)
         appSubtitle.setTextColor(palette.muted)
         appFooter.setTextColor(palette.muted)
+        // v1.2: footer menampilkan versi asli dari BuildConfig (bukan hardcode).
+        appFooter.text = "Cerpen Hozin v${BuildConfig.VERSION_NAME} · semua konten tersimpan di perangkat"
+        swipeRefresh.setColorSchemeColors(palette.accent)
         historyTitle.setTextColor(palette.ink)
         bookmarkTitle.setTextColor(palette.ink)
         allCerpenTitle.setTextColor(palette.ink)
@@ -316,11 +326,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncNow() {
+        // Cegah sync ganda (tombol + tarik bersamaan).
+        if (!refreshButton.isEnabled) return
         refreshButton.isEnabled = false
         refreshButton.text = "Memperbarui..."
+        swipeRefresh.isRefreshing = true
         DataManager.syncFromGithub(this) { changed ->
             refreshButton.isEnabled = true
             refreshButton.text = "Perbarui Konten"
+            swipeRefresh.isRefreshing = false
             if (changed) {
                 loadContent()
                 Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()

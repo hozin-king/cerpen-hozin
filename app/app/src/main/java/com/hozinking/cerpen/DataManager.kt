@@ -17,19 +17,28 @@ import java.net.URL
  * Semua data (cerpen, berita, gambar) disimpan LOKAL di penyimpanan internal
  * sehingga aplikasi full offline.
  *
- * PROTEKSI KONTEN (v1.1, lihat CONTENT_PROTECTION.md):
- * - Teks JSON TIDAK PERNAH dibawa sebagai plaintext di assets. Yang di-bundle
- *   hanya `cerpen.json.enc` / `news.json.enc` (AES-256-GCM, IV 12B +
- *   ciphertext+tag) + `manifest.json` plaintext berisi SHA-256 plaintext.
- * - DataManager: baca manifest -> dekripsi .enc (kunci dari native lib
- *   `contentguard` via JNI) -> verifikasi SHA-256 -> baru dipakai.
- * - Bila verifikasi gagal: toast "Konten rusak", file ditolak, dipakai
- *   salinan terakhir yang baik (plaintext cache internal) bila ada.
- * - Fallback MASA TRANSISI: bila .enc belum ada, plaintext cerpen.json /
- *   news.json masih boleh dibaca (dicatat di log) — agar update bertahap
- *   dari v1.0 tidak membuat aplikasi kosong.
- * - Plaintext hasil dekripsi disimpan HANYA di internal storage privat
- *   aplikasi (filesDir/data/<nama>.json), tidak pernah di storage eksternal.
+ * PROTEKSI KONTEN (v1.2, lihat CONTENT_PROTECTION.md):
+ * - TIDAK ADA plaintext di assets maupun di internal storage. Yang
+ *   di-bundle hanya file `.enc` (AES-256-GCM, IV 12B + ciphertext+tag):
+ *   `cerpen.json.enc`, `news.json.enc`, `manifest.json.enc`,
+ *   gambar cover dan berita (tiap file berekstensi .enc di bawah
+ *   covers/ dan news/img/). Manifest berisi SHA-256 plaintext
+ *   tiap aset — manifestnya sendiri terenkripsi (tag GCM yang
+ *   mengautentikasinya).
+ * - DataManager: baca manifest terenkripsi -> dekripsi .enc (kunci dari
+ *   native lib `contentguard` via JNI) -> verifikasi SHA-256 -> baru
+ *   dipakai. Hasil dekripsi HANYA ada di memori (RAM), tidak pernah
+ *   ditulis ke disk.
+ * - Bila verifikasi gagal: toast "Konten rusak" dan file itu ditolak;
+ *   fallback-nya adalah file .enc itu sendiri (dekripsi ulang), bukan
+ *   salinan plaintext.
+ * - Fallback MASA TRANSISI: bila .enc belum ada, plaintext dari aset
+ *   masih boleh dibaca (dicatat di log) — agar update bertahap dari
+ *   v1.1 tidak membuat aplikasi kosong. Migrasi sekali jalan
+ *   (migratePlaintextAway) menghapus plaintext lama di internal storage
+ *   setelah .enc-nya terverifikasi valid.
+ * - Sync GitHub-raw: manifest.json.enc + file .enc saja (bukan
+ *   plaintext), tiap file diverifikasi SHA-256 setelah dekripsi.
  */
 object DataManager {
 
@@ -42,6 +51,12 @@ object DataManager {
     /** Toast "Konten rusak" cukup sekali per proses agar tidak spam. */
     private var corruptToastShown = false
 
+    /** Manifest terdekripsi yang di-cache di memori; dibatalkan tiap sync. */
+    private var manifestCache: JSONObject? = null
+
+    /** ensureCopied hanya perlu jalan sekali per proses. */
+    private var copiedOnce = false
+
     private fun dataDir(context: Context): File =
         File(context.filesDir, "data").apply { if (!exists()) mkdirs() }
 
@@ -51,30 +66,85 @@ object DataManager {
     private fun newsImgDir(context: Context): File =
         File(dataDir(context), "news/img").apply { if (!exists()) mkdirs() }
 
-    /** Salinan plaintext terakhir yang terverifikasi baik (cache internal). */
-    fun cerpenFile(context: Context): File = File(dataDir(context), "cerpen.json")
-    fun newsFile(context: Context): File = File(dataDir(context), "news.json")
-
+    /** File .enc di internal storage (satu-satunya salinan di disk). */
     private fun cerpenEncFile(context: Context): File = File(dataDir(context), "cerpen.json.enc")
     private fun newsEncFile(context: Context): File = File(dataDir(context), "news.json.enc")
-    private fun manifestFile(context: Context): File = File(dataDir(context), "manifest.json")
+    private fun manifestEncFile(context: Context): File = File(dataDir(context), "manifest.json.enc")
 
-    /** Salin aset awal ke internal storage bila belum ada (sekali saja). */
+    /** Jalur plaintext LEGASI (v1.1) — hanya dipakai migrasi penghapusan. */
+    private fun legacyPlaintextFiles(context: Context): List<File> {
+        val out = ArrayList<File>()
+        out += File(dataDir(context), "cerpen.json")
+        out += File(dataDir(context), "news.json")
+        out += File(dataDir(context), "manifest.json")
+        coversDir(context).listFiles()?.forEach { if (!it.name.endsWith(".enc")) out += it }
+        newsImgDir(context).listFiles()?.forEach { if (!it.name.endsWith(".enc")) out += it }
+        return out
+    }
+
+    /** Salin aset awal (.enc saja) ke internal storage bila belum ada. */
     fun ensureCopied(context: Context) {
+        if (copiedOnce) return
         try {
-            copyAssetIfMissing(context, "manifest.json", manifestFile(context))
+            copyAssetIfMissing(context, "manifest.json.enc", manifestEncFile(context))
             copyAssetIfMissing(context, "cerpen.json.enc", cerpenEncFile(context))
             copyAssetIfMissing(context, "news.json.enc", newsEncFile(context))
             val covers = context.assets.list("covers") ?: emptyArray()
             for (name in covers) {
+                if (!name.endsWith(".enc")) continue
                 copyAssetIfMissing(context, "covers/$name", File(coversDir(context), name))
             }
             val newsImgs = context.assets.list("news/img") ?: emptyArray()
             for (name in newsImgs) {
+                if (!name.endsWith(".enc")) continue
                 copyAssetIfMissing(context, "news/img/$name", File(newsImgDir(context), name))
             }
+            migratePlaintextAway(context)
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+        copiedOnce = true
+    }
+
+    /**
+     * MIGRASI v1.2: hapus file plaintext legasi (v1.1) dari internal
+     * storage — cerpen.json / news.json / manifest.json / JPG — SETELAH
+     * versi .enc-nya terbukti ada dan terdekripsi valid. Bila .enc belum
+     * ada / tidak valid, plaintext dibiarkan (fail-safe: jangan hapus
+     * satu-satunya salinan yang masih bisa dibaca).
+     */
+    private fun migratePlaintextAway(context: Context) {
+        val key = ContentGuard.getKey()
+        for (plain in legacyPlaintextFiles(context)) {
+            if (!plain.exists() || plain.length() == 0L) continue
+            var valid = false
+            try {
+                val encFile = File(plain.parentFile, plain.name + ".enc")
+                if (encFile.exists() && encFile.length() > 0 && key != null) {
+                    val enc = encFile.readBytes()
+                    // Gambar/manifest: tag GCM cukup (dekripsi sukses = valid).
+                    valid = ContentCrypto.decrypt(enc, key) != null
+                    // JSON: verifikasi penuh (dekripsi + SHA lawan manifest).
+                    if (valid && (plain.name == "cerpen.json" || plain.name == "news.json")) {
+                        val entry = loadManifest(context)?.optJSONObject(plain.name)
+                        val sha = entry?.optString("sha256", "")
+                        valid = !sha.isNullOrEmpty() &&
+                            ContentCrypto.decryptVerified(enc, key, sha) != null
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            if (valid) {
+                Log.i(TAG, "migrasi: hapus plaintext legasi ${plain.name}")
+                try {
+                    plain.delete()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else {
+                Log.w(TAG, "migrasi: ${plain.name} dibiarkan (.enc belum valid)")
+            }
         }
     }
 
@@ -107,24 +177,85 @@ object DataManager {
         }
     }
 
-    /** Entri manifest untuk satu file JSON: Pair(sha256, nama file .enc). */
-    private fun manifestEntry(context: Context, jsonName: String): Pair<String, String>? {
-        val text = try {
-            val f = manifestFile(context)
-            if (f.exists() && f.length() > 0) f.readText(Charsets.UTF_8)
-            else readAssetText(context, "manifest.json")
-        } catch (e: Exception) {
-            null
-        } ?: return null
+    /**
+     * Muat manifest (terdekripsi) — dari cache internal .enc dulu, lalu
+     * aset .enc; fallback plaintext legasi (dicatat di log). Hasil
+     * di-cache di memori sampai sync menulis manifest baru.
+     */
+    private fun loadManifest(context: Context): JSONObject? {
+        manifestCache?.let { return it }
+        val key = ContentGuard.getKey()
+        val parsed = parseManifestBytes(readManifestEncBytes(context), key)
+            ?: parseManifestText(readManifestPlaintext(context))
+        if (parsed != null) manifestCache = parsed
+        return parsed
+    }
+
+    private fun readManifestEncBytes(context: Context): ByteArray? {
+        val f = manifestEncFile(context)
+        if (f.exists() && f.length() > 0) {
+            try {
+                return f.readBytes()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return readAssetBytes(context, "manifest.json.enc")
+    }
+
+    private fun readManifestPlaintext(context: Context): String? {
+        val f = File(dataDir(context), "manifest.json")
+        if (f.exists() && f.length() > 0) {
+            try {
+                return f.readText(Charsets.UTF_8)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return readAssetText(context, "manifest.json")?.also {
+            Log.w(TAG, "manifest PLAINTEXT dari aset (masa transisi)")
+        }
+    }
+
+    private fun parseManifestBytes(enc: ByteArray?, key: ByteArray?): JSONObject? {
+        if (enc == null || key == null) {
+            if (enc != null) Log.w(TAG, "manifest .enc ada tapi kunci native tidak tersedia")
+            return null
+        }
+        val plain = ContentCrypto.decrypt(enc, key) ?: run {
+            Log.w(TAG, "manifest .enc gagal didekripsi")
+            return null
+        }
         return try {
-            val entry = JSONObject(text).optJSONObject(jsonName) ?: return null
-            val sha = entry.optString("sha256", "")
-            val file = entry.optString("file", "")
-            if (sha.isEmpty() || file.isEmpty()) null else sha to file
+            JSONObject(String(plain, Charsets.UTF_8))
         } catch (e: Exception) {
-            Log.w(TAG, "manifest rusak: ${e.message}")
+            Log.w(TAG, "manifest .enc bukan JSON valid: ${e.message}")
             null
         }
+    }
+
+    private fun parseManifestText(text: String?): JSONObject? {
+        if (text.isNullOrBlank()) return null
+        return try {
+            JSONObject(text)
+        } catch (e: Exception) {
+            Log.w(TAG, "manifest plaintext rusak: ${e.message}")
+            null
+        }
+    }
+
+    private fun invalidateManifestCache() {
+        manifestCache = null
+    }
+
+    /** Entri manifest untuk satu aset: Pair(sha256, nama file .enc). */
+    private fun manifestEntry(context: Context, name: String): Pair<String, String>? {
+        val manifest = loadManifest(context) ?: return null
+        val entry = manifest.optJSONObject(name) ?: return null
+        val sha = entry.optString("sha256", "")
+        val file = entry.optString("file", "")
+        if (sha.isEmpty() || file.isEmpty()) return null
+        return sha to file
     }
 
     private fun readEncBytes(context: Context, encName: String): ByteArray? {
@@ -150,8 +281,11 @@ object DataManager {
 
     /**
      * Muat teks JSON terverifikasi untuk [jsonName] ("cerpen.json" / "news.json").
-     * Urutan: .enc + manifest + kunci native -> plaintext cache terakhir yang
-     * baik -> plaintext masa transisi (aset/internal, dicatat di log).
+     * Urutan: .enc + manifest terenkripsi + kunci native -> plaintext
+     * masa transisi (aset, dicatat di log). Hasil dekripsi HANYA ada di
+     * memori — tidak pernah ditulis ke disk. Tidak ada lagi "salinan
+     * terakhir yang baik" berupa plaintext: fallback-nya adalah file
+     * .enc itu sendiri (dekripsi ulang tiap kali dibutuhkan).
      */
     private fun loadVerifiedText(context: Context, jsonName: String): String? {
         ensureCopied(context)
@@ -165,16 +299,7 @@ object DataManager {
                     Log.w(TAG, "$jsonName: kunci native tidak tersedia, coba fallback plaintext")
                 } else {
                     val text = ContentCrypto.decryptVerified(enc, key, sha)
-                    if (text != null) {
-                        // Simpan sebagai salinan terakhir yang baik (internal privat).
-                        try {
-                            val cache = if (jsonName == "cerpen.json") cerpenFile(context) else newsFile(context)
-                            cache.writeText(text, Charsets.UTF_8)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                        return text
-                    }
+                    if (text != null) return text // hanya di memori
                     Log.w(TAG, "$jsonName: verifikasi .enc gagal (SHA/dekripsi)")
                     toastCorrupt(context)
                 }
@@ -184,17 +309,7 @@ object DataManager {
         } else {
             Log.w(TAG, "$jsonName: entri manifest tidak ada")
         }
-        // Salinan terakhir yang baik (plaintext cache internal).
-        try {
-            val cache = if (jsonName == "cerpen.json") cerpenFile(context) else newsFile(context)
-            if (cache.exists() && cache.length() > 0) {
-                Log.i(TAG, "$jsonName: memakai salinan terakhir yang baik")
-                return cache.readText(Charsets.UTF_8)
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        // Fallback masa transisi: plaintext dari aset (v1.0) — dicatat di log.
+        // Fallback masa transisi: plaintext dari aset (v1.0/v1.1) — dicatat di log.
         val plain = readAssetText(context, jsonName)
         if (plain != null) {
             Log.w(TAG, "$jsonName: fallback PLAINTEXT dari aset (masa transisi)")
@@ -203,7 +318,7 @@ object DataManager {
         return null
     }
 
-    /** Baca cerpen: .enc terverifikasi, fallback cache/plaintext transisi. */
+    /** Baca cerpen: .enc terverifikasi, fallback plaintext transisi. */
     fun loadCerpen(context: Context): List<Cerpen> {
         val text = loadVerifiedText(context, "cerpen.json") ?: return emptyList()
         return try {
@@ -214,7 +329,7 @@ object DataManager {
         }
     }
 
-    /** Baca berita: .enc terverifikasi, fallback cache/plaintext transisi. */
+    /** Baca berita: .enc terverifikasi, fallback plaintext transisi. */
     fun loadNews(context: Context): List<NewsArticle> {
         val text = loadVerifiedText(context, "news.json") ?: return emptyList()
         return try {
@@ -225,18 +340,66 @@ object DataManager {
         }
     }
 
-    /** File gambar sampul di internal storage (null bila belum ada). */
-    fun coverLocalFile(context: Context, coverName: String): File? {
-        val f = File(coversDir(context), coverName)
-        return if (f.exists() && f.length() > 0) f else null
+    /**
+     * Dekripsi satu gambar (cover / berita) jadi byte array di memori.
+     * [assetPath] berbentuk "covers/cover_01.jpg" atau "news/img/xxx.jpg".
+     * Sumber: file .enc internal dulu, lalu aset .enc. Verifikasi SHA
+     * lawan manifest bila entrinya ada (tag GCM selalu diperiksa).
+     * Fallback plaintext masa transisi dicatat di log. TIDAK PERNAH
+     * menulis hasil dekripsi ke disk.
+     */
+    fun decryptImageBytes(context: Context, assetPath: String): ByteArray? {
+        ensureCopied(context)
+        val enc = readImageEncBytes(context, "$assetPath.enc")
+        if (enc != null) {
+            val key = ContentGuard.getKey()
+            if (key == null) {
+                Log.w(TAG, "$assetPath: kunci native tidak tersedia")
+            } else {
+                val entry = manifestEntry(context, assetPath)
+                val bytes = if (entry != null) {
+                    ContentCrypto.decryptVerifiedBytes(enc, key, entry.first)
+                } else {
+                    Log.w(TAG, "$assetPath: tanpa entri manifest, verifikasi GCM saja")
+                    ContentCrypto.decrypt(enc, key)
+                }
+                if (bytes != null) return bytes
+                Log.w(TAG, "$assetPath: verifikasi .enc gagal (SHA/dekripsi)")
+                toastCorrupt(context)
+            }
+        }
+        // Fallback masa transisi: plaintext (internal / aset).
+        val plainName = assetPath.substringAfterLast("/")
+        val plainFile = if (assetPath.startsWith("covers/")) {
+            File(coversDir(context), plainName)
+        } else {
+            File(newsImgDir(context), plainName)
+        }
+        if (plainFile.exists() && plainFile.length() > 0) {
+            Log.w(TAG, "$assetPath: fallback PLAINTEXT internal (masa transisi)")
+            return try {
+                plainFile.readBytes()
+            } catch (e: Exception) {
+                null
+            }
+        }
+        return try {
+            context.assets.open(assetPath).use { it.readBytes() }
+        } catch (e: Exception) {
+            null
+        }
     }
 
-    /** File gambar berita di internal storage (null bila belum ada). */
-    fun newsImageLocalFile(context: Context, imageName: String): File? {
-        // imageName berbentuk "img/xxx.jpg" atau "xxx.jpg"
-        val name = imageName.substringAfterLast("/")
-        val f = File(newsImgDir(context), name)
-        return if (f.exists() && f.length() > 0) f else null
+    private fun readImageEncBytes(context: Context, encPath: String): ByteArray? {
+        val f = File(dataDir(context), encPath)
+        if (f.exists() && f.length() > 0) {
+            try {
+                return f.readBytes()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        return readAssetBytes(context, encPath)
     }
 
     private fun isOnline(context: Context): Boolean {
@@ -247,23 +410,6 @@ object DataManager {
             caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (e: Exception) {
             false
-        }
-    }
-
-    private fun fetchText(url: String, timeoutMs: Int = 15000): String? {
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = timeoutMs
-                setRequestProperty("User-Agent", "CerpenHozin/1.1")
-            }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
-            conn.inputStream.bufferedReader(Charsets.UTF_8).readText()
-        } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
         }
     }
 
@@ -285,10 +431,11 @@ object DataManager {
     }
 
     /**
-     * Sync best-effort dari GitHub raw: manifest + file .enc (BUKAN plaintext).
-     * Tiap file diverifikasi SHA-256 setelah dekripsi; yang gagal ditolak dan
-     * salinan lama dipertahankan. Dijalankan di thread background; callback di
-     * main thread dengan true bila ada data baru.
+     * Sync best-effort dari GitHub raw: manifest.json.enc + file .enc
+     * (BUKAN plaintext). Tiap file diverifikasi SHA-256 setelah dekripsi;
+     * yang gagal ditolak dan salinan lama dipertahankan. Dijalankan di
+     * thread background; callback di main thread dengan true bila ada
+     * data baru.
      */
     fun syncFromGithub(context: Context, onDone: (Boolean) -> Unit) {
         Thread {
@@ -305,20 +452,30 @@ object DataManager {
                     return@Thread
                 }
                 // 1. Manifest dulu — tanpa manifest, tidak ada yang diverifikasi.
-                val manifestText = fetchText("$GITHUB_RAW_BASE/manifest.json")
-                if (manifestText.isNullOrBlank()) {
-                    Log.w(TAG, "sync dibatalkan: manifest.json tidak terunduh")
+                // Manifest diunduh TERENKRIPSI (manifest.json.enc) dan disimpan
+                // apa adanya; dekripsinya in-memory saat dibaca.
+                val manifestEnc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc")
+                if (manifestEnc == null || manifestEnc.isEmpty()) {
+                    Log.w(TAG, "sync dibatalkan: manifest.json.enc tidak terunduh")
                     mainHandler.post { onDone(false) }
                     return@Thread
                 }
+                val manifestText = ContentCrypto.decrypt(manifestEnc, key)
+                    ?.let { String(it, Charsets.UTF_8) }
                 val manifest = try {
-                    JSONObject(manifestText)
+                    if (manifestText.isNullOrBlank()) null else JSONObject(manifestText)
                 } catch (e: Exception) {
-                    Log.w(TAG, "sync dibatalkan: manifest.json rusak")
+                    null
+                }
+                if (manifest == null) {
+                    Log.w(TAG, "sync dibatalkan: manifest.json.enc rusak / gagal dekripsi")
                     mainHandler.post { onDone(false) }
                     return@Thread
                 }
-                manifestFile(context).writeText(manifestText, Charsets.UTF_8)
+                val encDest = manifestEncFile(context)
+                encDest.parentFile?.mkdirs()
+                encDest.writeBytes(manifestEnc)
+                invalidateManifestCache()
 
                 // 2. cerpen.json.enc
                 changed = syncOneEncrypted(context, manifest, "cerpen.json", key) || changed
@@ -352,18 +509,12 @@ object DataManager {
             val encDest = File(dataDir(context), file)
             encDest.parentFile?.mkdirs()
             encDest.writeBytes(enc)
-            val cache = if (jsonName == "cerpen.json") cerpenFile(context) else newsFile(context)
-            cache.writeText(text, Charsets.UTF_8)
+            // Hasil dekripsi HANYA di memori — tidak ditulis plaintext ke disk.
             if (jsonName == "cerpen.json") {
                 val parsed = ContentLoader.parseCerpen(text)
                 for (c in parsed) {
-                    if (c.cover.isNotEmpty() && coverLocalFile(context, c.cover) == null) {
-                        val bytes = fetchBytes("$GITHUB_RAW_BASE/covers/${c.cover}")
-                        if (bytes != null && bytes.isNotEmpty()) {
-                            val dest = File(coversDir(context), c.cover)
-                            dest.parentFile?.mkdirs()
-                            dest.writeBytes(bytes)
-                        }
+                    if (c.cover.isNotEmpty()) {
+                        syncOneImage(context, manifest, "covers/${c.cover}", key)
                     }
                 }
             } else {
@@ -371,17 +522,44 @@ object DataManager {
                 for (a in parsed) {
                     for (img in a.images) {
                         val name = img.substringAfterLast("/")
-                        if (newsImageLocalFile(context, name) == null) {
-                            val bytes = fetchBytes("$GITHUB_RAW_BASE/news/img/$name")
-                            if (bytes != null && bytes.isNotEmpty()) {
-                                val dest = File(newsImgDir(context), name)
-                                dest.parentFile?.mkdirs()
-                                dest.writeBytes(bytes)
-                            }
+                        if (name.isNotEmpty()) {
+                            syncOneImage(context, manifest, "news/img/$name", key)
                         }
                     }
                 }
             }
+            migratePlaintextAway(context)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    /**
+     * Unduh + verifikasi satu gambar terenkripsi; true bila ada data baru
+     * yang valid. Disimpan sebagai .enc di internal storage (tidak pernah
+     * plaintext). Bila .enc sudah ada, dilewati.
+     */
+    private fun syncOneImage(
+        context: Context,
+        manifest: JSONObject,
+        assetPath: String,
+        key: ByteArray
+    ): Boolean {
+        val dest = File(dataDir(context), "$assetPath.enc")
+        if (dest.exists() && dest.length() > 0) return false
+        val entry = manifest.optJSONObject(assetPath) ?: return false
+        val sha = entry.optString("sha256", "")
+        if (sha.isEmpty()) return false
+        val enc = fetchBytes("$GITHUB_RAW_BASE/$assetPath.enc") ?: return false
+        if (ContentCrypto.decryptVerifiedBytes(enc, key, sha) == null) {
+            Log.w(TAG, "sync $assetPath: verifikasi gagal, file ditolak")
+            return false
+        }
+        return try {
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(enc)
             true
         } catch (e: Exception) {
             e.printStackTrace()

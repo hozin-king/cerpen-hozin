@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya
@@ -34,6 +34,22 @@ android {
         }
     }
 
+    // Signing rilis: keystore PERSISTEN (bukan debug keystore runner).
+    // Di CI, workflow mendekode secret CERPEN_KEYSTORE_BASE64 ke file dan
+    // men-set CERPEN_KEYSTORE_FILE + CERPEN_KEYSTORE_PASSWORD. Tanpa env
+    // ini, assembleRelease gagal eksplisit (tidak pernah rilis unsigned
+    // diam-diam). Build debug tidak kena blok ini.
+    signingConfigs {
+        release {
+            if (System.getenv("CERPEN_KEYSTORE_FILE") != null) {
+                storeFile file(System.getenv("CERPEN_KEYSTORE_FILE"))
+                storePassword System.getenv("CERPEN_KEYSTORE_PASSWORD")
+                keyAlias "cerpen"
+                keyPassword System.getenv("CERPEN_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         // Debug ikut diminifikasi agar APK kecil (target ~5 MB).
         // Keep rules di proguard-rules.pro menjaga jalur dekripsi + JNI.
@@ -45,6 +61,7 @@ android {
         release {
             minifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig signingConfigs.release
         }
     }
 
@@ -59,6 +76,9 @@ android {
 
     buildFeatures {
         viewBinding = false
+        // v1.2: BuildConfig.VERSION_NAME dipakai footer versi (Main +
+        // Settings) — di AGP 8.5 ini harus diaktifkan eksplisit.
+        buildConfig = true
     }
 
     // Aset dibaca langsung dari data/ repo (single source of truth) +
@@ -73,6 +93,7 @@ android {
 dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("com.google.android.material:material:1.13.0")
     implementation("androidx.core:core-ktx:1.13.1")
 

@@ -6,9 +6,13 @@ local.properties
 build/
 app/build/
 app/app/build/
+# Artefak build native (CMake) — diregenerasi tiap build.
+.cxx/
 .idea/
 *.iml
 .DS_Store
+# Ikon launcher PNG legacy — repo hanya memakai ikon adaptif XML (anydpi-v26).
+app/src/main/res/mipmap-*/ic_launcher*.png
 
 # Konten plaintext (hanya .enc + manifest yang di-commit)
 data/cerpen.json
