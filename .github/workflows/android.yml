@@ -9,9 +9,19 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Perlu write agar workflow bisa membuat tag + rilis sendiri (aturan
+    # "SE auto mungkin": push ke main yang berhasil langsung jadi rilis).
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read app version
+        run: |
+          VER=$(grep -oP 'versionName = "\K[^"]+' app/app/build.gradle)
+          echo "APP_VERSION=$VER" >> "$GITHUB_ENV"
+          echo "Version: $VER"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -67,8 +77,23 @@ jobs:
           path: app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Create version tag
+        if: github.ref == 'refs/heads/main'
+        run: |
+          if git rev-parse "v$APP_VERSION" >/dev/null 2>&1; then
+            echo "Tag v$APP_VERSION sudah ada, lewati."
+          else
+            git tag "v$APP_VERSION"
+            git push origin "v$APP_VERSION"
+            echo "Tag v$APP_VERSION dibuat."
+          fi
+
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ env.APP_VERSION }}
+          name: Cerpen Hozin v${{ env.APP_VERSION }}
+          generate_release_notes: true
+          make_latest: true
           files: app/app/build/outputs/apk/debug/app-debug.apk
