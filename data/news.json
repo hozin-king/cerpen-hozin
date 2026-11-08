@@ -1,0 +1,74 @@
+{
+  "articles": [
+    {
+      "title": "Bobot Open-Weight Kimi K3.1 Pro Resmi Dirilis, Bisa Dijalankan Sendiri dengan Konteks 1 Juta Token",
+      "summary": "Moonshot AI akhirnya merilis bobot open-weight Kimi K3.1 Pro di Hugging Face pada 4 November 2026, sesuai janji saat pengumuman 23 Oktober lalu — jadi siapa pun kini bisa menjalankan model raksasa ini di infrastruktur sendiri. Model ini punya konteks 1 juta token dan skor Terminal-Bench 4.0 sebesar 65,7%, nyaris menyamai Claude Opus 5.5 (66,4%) dan di atas GPT-6 Astra (58,2%). Tapi hati-hati soal lisensi: ada syarat khusus buat yang mau menjadikannya layanan berbayar skala besar.",
+      "source": "NeoTeo (laporan Europa Press)",
+      "date": "2026-11-08",
+      "image": "img/2026-11-08-1420-kimi-k31pro.jpg"
+    },
+    {
+      "title": "Starlink V4: Laser 10 Tb/s per Satelit, Musk Klaim Bisa Kalahkan Kabel Bawah Laut",
+      "summary": "Elon Musk bilang Starlink generasi ke-4 bakal 10x lebih kencang dari V3 (yang sendiri sudah 10x dari V2), berkat laser antar-satelit generasi baru berkecepatan 10 terabit per detik — 100x lebih cepat. Tiap satelit V4 rencananya bawa 10 laser, total 100 laser per satelit, dan dengan 100 ribu satelit lebih, Starlink bisa jadi tulang punggung internet orbital yang menyaingi kabel bawah laut. Klaimnya: cahaya di luar angkasa ~40% lebih cepat dari di kabel serat optik, plus jalurnya lurus, bukan mengikuti bentuk daratan.",
+      "source": "ZeroHedge",
+      "date": "2026-11-08",
+      "image": "img/starlink-v4-20261108.png"
+    },
+    {
+      "title": "Starlink Buka Lomba Iklan Super Bowl Buatan Fans Pakai Grok Imagine",
+      "summary": "Starlink ngajak fans bikin sendiri iklan Super Bowl-nya pakai Grok Imagine, AI video generator milik xAI. Iklan 30 detik berbahasa Inggris, karya orisinal, dikirim lewat X plus formulir di starlink.com/imagine paling lambat 29 November. Karya terpilih bisa tayang saat Super Bowl LXI, 14 Februari 2027 — siaran pertama Super Bowl di ESPN, streaming di Disney+. Bedanya dari lomba biasa: ini 'content call', bukan kontes — tidak ada hadiah, dan Starlink boleh menayangkan sebagian, semua, atau tidak sama sekali.",
+      "source": "Cosmic Book News",
+      "date": "2026-11-08",
+      "image": "img/starlink-grok-superbowl-20261108.jpeg"
+    },
+    {
+      "title": "ChatGPT Pro $500/Bulan Hadir: GPT-6 Mulai Digulirkan, Harga Chatbot AI Makin Melebar",
+      "summary": "Perbandingan harga chatbot AI per 7 November 2026: OpenAI baru saja bikin tier ChatGPT Pro $500/bulan (5 Nov) — satu-satunya paket dengan varian 'Ultrafast' GPT-6 Astra dan GPT-6.1 Sol — sementara GPT-6 mulai digulirkan ke pengguna berbayar pada 6 November. Rentang harga sekarang lebar banget: dari gratis sampai $500/bulan (62,5x lipat), dengan Grok Plus $8 sebagai tier berbayar termurah — tapi hati-hati, Grok Plus tidak termasuk Grok Bot; chatbot Grok baru kebuka di tier Premium ~$30/bulan. Gemini 4 Argon sudah tersedia luas, tapi tarif API-nya naik 2x lipat mulai 1 Desember.",
+      "source": "Tech Insider",
+      "date": "2026-11-08",
+      "image": "img/ai-chatbot-20261108.jpg"
+    },
+    {
+      "title": "iPhone Duo vs Galaxy Z Fold 8: Adu Kamera Dua HP Lipat Termahal, Siapa Menang?",
+      "summary": "Dua HP lipat termahal saat ini, iPhone Duo dan Galaxy Z Fold 8, diadu kameranya di taman bersejarah Filoli, San Francisco. iPhone Duo unggul menjaga detail dan warna hijau yang dalam, sementara Galaxy Z Fold 8 lebih tajam di detail kulit pohon dengan warna langit yang lebih hidup. Sayangnya keduanya sama-sama tidak punya lensa telefoto, jadi kalah zoom dari flagship biasa seperti iPhone 18 Pro dan Galaxy S26 Ultra.",
+      "source": "Newsy Today (berdasarkan laporan CNET & MakeUseOf)",
+      "date": "2026-11-08",
+      "image": "img/iphone-duo-vs-zfold8-20261108-0820.jpg"
+    },
+    {
+      "title": "TP-Link Archer 8 Ultra, Router Wi-Fi 8 Pertama yang Diuji: Tembus 3 Dinding dengan 150Mbps",
+      "summary": "TP-Link Archer 8 Ultra, salah satu router Wi-Fi 8 pertama yang sampai ke pasar, diuji TechRadar dan berhasil mempertahankan koneksi 150Mbps dari jarak 9 meter menembus tiga dinding, termasuk di pita 6GHz. Angka itu bukan kecepatan puncaknya — koneksi internet yang dipakai memang mentok 150Mbps — tapi menunjukkan sinyalnya stabil di area yang biasanya bermasalah. Router ini dijadwalkan tersedia komersial mulai 15 November 2026.",
+      "source": "GSMDome (berdasarkan pengujian TechRadar)",
+      "date": "2026-11-08",
+      "image": "img/archer-8-ultra-20261108-0820.png"
+    },
+    {
+      "title": "Gelombang Flagship Snapdragon 8 Elite Gen 6 Menuju India dan Global: Xiaomi 18 Pro, iQOO 16, Motorola Signature 27",
+      "summary": "Gelombang flagship ber-chip Snapdragon 8 Elite Gen 6 mulai mengarah ke pasar global dan India. Xiaomi sudah mengonfirmasi peluncuran global Xiaomi 18 Pro dan 18 Pro Max bulan November ini, sementara iQOO 16 dikonfirmasi masuk India dengan chip Snapdragon 8 Elite Gen 6 Extreme, layar 2K 165Hz, dan baterai di atas 8.000mAh. Yang perlu dicermati: versi global Xiaomi 18 Pro kabarnya membawa baterai lebih kecil dari versi China, dan harganya diperkirakan ikut naik karena harga memori sedang melambung.",
+      "source": "Legawa",
+      "date": "2026-11-08",
+      "image": "img/xiaomi-18-pro-iqoo16-20261108-0820.jpg"
+    },
+    {
+      "title": "Starlink Naikkan Harga Data Global Priority 50% Mulai 1 Desember, Registrasi Perjalanan Wajib",
+      "summary": "Starlink bakal menaikkan harga blok data paket Global Priority di AS sebesar 50% mulai 1 Desember 2026, sementara paketnya diganti nama jadi Global Business dan Local Priority jadi Business. Pengguna yang roaming ke luar negeri juga wajib melengkapi Travel Registration — kalau tidak, layanan bisa dimatikan tapi tagihan tetap jalan. Jatah pemakaian internasional Local Priority ikut dipangkas dari 60 jadi 30 hari berturut-turut.",
+      "source": "Yachtbyte",
+      "date": "2026-11-08",
+      "image": "img/2026-11-08-0520-starlink-harga.jpg"
+    },
+    {
+      "title": "[Rumor] Intel Razor Lake-S Dirumorkan Rilis 2028, Tetap Pakai Soket LGA 1954 yang Sama dengan Nova Lake-S",
+      "summary": "Penerus Nova Lake-S, Intel Razor Lake-S, dirumorkan baru meluncur pada 2028 — bukan akhir 2027 seperti perkiraan sebelumnya — menurut bocoran leaker Jaykihn. Kabar baiknya, Razor Lake-S diperkirakan tetap memakai soket LGA 1954 yang sama dengan Nova Lake-S, jadi motherboard yang dibeli untuk Nova Lake berpotensi bisa dipakai lintas generasi. Tapi semua ini masih rumor, belum ada yang resmi dari Intel.",
+      "source": "HotHardware",
+      "date": "2026-11-08",
+      "image": "img/2026-11-08-0520-razorlake-cpu.png"
+    },
+    {
+      "title": "[Rumor] Bocoran Benchmark Nova Lake-S: Sampel 28 Core Tembus 5.210 Poin PassMark Single-Thread",
+      "summary": "Bocoran benchmark Intel Nova Lake-S mulai beredar: sebuah prosesor tak dikenal yang diduga Nova Lake-S 28 core mencetak 5.210 poin di uji single-thread PassMark, meski kondisi pengujiannya belum diketahui. Artikel ini juga merangkum peta jalan yang beredar: Nova Lake-S (Core Ultra Series 4) sampai 52 core dengan cache bLLC hingga 288MB, soket baru LGA 1954, dan dukungan memori DDR5 sampai 8.000 MT/s. Semua angka ini masih bocoran — traktiran resmi Intel ditunggu di CES 2027.",
+      "source": "NoobFeed",
+      "date": "2026-11-08",
+      "image": "img/2026-11-08-0520-novalake-52core.jpg"
+    }
+  ]
+}

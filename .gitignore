@@ -1,0 +1,17 @@
+# Build & lokal (jangan di-commit)
+*.apk
+*.aab
+local.properties
+.gradle/
+build/
+app/build/
+app/app/build/
+.idea/
+*.iml
+.DS_Store
+
+# Gradle wrapper jar tetap di-commit (dibutuhkan build).
+# Keystore / kredensial: JANGAN PERNAH di-commit.
+*.jks
+*.keystore
+*.p12
