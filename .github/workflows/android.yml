@@ -1,12 +1,10 @@
 name: Build Cerpen Hozin APK
 
-
 on:
   push:
     branches: [main]
     tags: ['v*']
   workflow_dispatch:
-
 
 jobs:
   build:
@@ -15,13 +13,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
-
 
       - name: Install Android SDK packages
         run: |
@@ -29,16 +25,28 @@ jobs:
             SDKMANAGER=sdkmanager
           elif [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          else
+          elif [ -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          else
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/bin/sdkmanager"
           fi
           yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-
+          "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;25.2.9519653"
 
       - name: Grant execute permission for gradlew
         run: chmod +x app/gradlew
 
+      - name: Derive content key
+        env:
+          CERPEN_CONTENT_KEY: ${{ secrets.CERPEN_CONTENT_KEY }}
+        run: |
+          if [ -z "$CERPEN_CONTENT_KEY" ]; then
+            echo "CERPEN_CONTENT_KEY secret belum dibuat/kosong — build dibatalkan." >&2
+            exit 1
+          fi
+          KEY_B64=$(printf '%s' "$CERPEN_CONTENT_KEY" | openssl dgst -sha256 -binary | base64 -w0)
+          echo "::add-mask::$KEY_B64"
+          echo "CERPEN_CONTENT_KEY=$KEY_B64" >> "$GITHUB_ENV"
 
       - name: Build debug APK
         run: |
@@ -52,14 +60,12 @@ jobs:
             ./gradlew assembleDebug --stacktrace
           fi
 
-
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: CerpenHozin-debug
           path: app/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
