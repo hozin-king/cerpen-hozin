@@ -34,7 +34,16 @@ jobs:
         run: chmod +x app/gradlew
 
       - name: Build debug APK
-        run: cd app && ./gradlew assembleDebug --stacktrace
+        run: |
+          cd app
+          GRADLE_BIN=$(ls /opt/hostedtoolcache/gradle/*/x64/bin/gradle 2>/dev/null | sort -V | tail -1)
+          if [ -n "$GRADLE_BIN" ]; then
+            echo "Using cached Gradle: $GRADLE_BIN"
+            "$GRADLE_BIN" assembleDebug --stacktrace
+          else
+            echo "No cached Gradle found, falling back to wrapper"
+            ./gradlew assembleDebug --stacktrace
+          fi
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
