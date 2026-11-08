@@ -54,7 +54,11 @@ data class NewsArticle(
     val summary: String,
     val source: String,
     val date: String,
-    val image: String?
+    val image: String?,
+    /** Semua gambar artikel ("images", maks 3 dari scraper); fallback ke `image`. */
+    val images: List<String> = emptyList(),
+    /** Isi lengkap artikel; kosong bila data lama (pakai `summary`). */
+    val details: String = ""
 )
 
 /** Parser cerpen.json + news.json (org.json, tanpa dependensi). */
@@ -109,13 +113,26 @@ object ContentLoader {
             val arr = root.optJSONArray("articles") ?: JSONArray()
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
+                val single = if (o.isNull("image")) null else o.optString("image")
+                val imgs = ArrayList<String>()
+                val imgArr = o.optJSONArray("images")
+                if (imgArr != null) {
+                    for (j in 0 until imgArr.length()) {
+                        val s = imgArr.optString(j, "")
+                        if (s.isNotEmpty()) imgs.add(s)
+                    }
+                }
+                // Fallback data lama: hanya 1 gambar di "image".
+                if (imgs.isEmpty() && !single.isNullOrEmpty()) imgs.add(single)
                 out.add(
                     NewsArticle(
                         title = o.optString("title", ""),
                         summary = o.optString("summary", ""),
                         source = o.optString("source", ""),
                         date = o.optString("date", ""),
-                        image = if (o.isNull("image")) null else o.optString("image")
+                        image = single,
+                        images = imgs,
+                        details = o.optString("details", "")
                     )
                 )
             }

@@ -47,10 +47,17 @@ Jadwalnya bareng cron news (tiap 3 jam). Lihat README di phone-news-watcher.
 Push ke `main` → workflow `.github/workflows/android.yml` membangun APK debug
 dan mengunggahnya sebagai artifact. Unduh artifact `CerpenHozin-debug`.
 
+**Syarat build v1.1+:** NDK `25.2.9519653` (dipasang workflow via sdkmanager)
+dan **GitHub Secret `CERPEN_CONTENT_KEY`** (kunci konten 32 byte, base64) —
+tanpa secret ini build GAGAL dengan pesan jelas. Detail proteksi konten:
+lihat `CONTENT_PROTECTION.md`.
+
 ### Lokal (stopgap)
 ```bash
 cd app
 # Buat local.properties berisi: sdk.dir=/path/ke/android-sdk
+# Kunci konten dibaca dari env CERPEN_CONTENT_KEY atau file kunci lokal
+# (lihat CONTENT_PROTECTION.md) — build gagal bila kunci tidak ada.
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```

@@ -10,6 +10,10 @@ app/app/build/
 *.iml
 .DS_Store
 
+# Konten plaintext (hanya .enc + manifest yang di-commit)
+data/cerpen.json
+data/news.json
+
 # Gradle wrapper jar tetap di-commit (dibutuhkan build).
 # Keystore / kredensial: JANGAN PERNAH di-commit.
 *.jks

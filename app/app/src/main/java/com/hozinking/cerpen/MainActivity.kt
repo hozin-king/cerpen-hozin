@@ -17,6 +17,20 @@ import androidx.recyclerview.widget.RecyclerView
 
 class MainActivity : AppCompatActivity() {
 
+    private lateinit var root: View
+    private lateinit var appTitle: TextView
+    private lateinit var appSubtitle: TextView
+    private lateinit var appFooter: TextView
+    private lateinit var settingsButton: Button
+    private lateinit var tabCerpenButton: Button
+    private lateinit var tabBeritaButton: Button
+    private lateinit var cerpenTab: LinearLayout
+    private lateinit var newsTab: LinearLayout
+    private lateinit var historyTitle: TextView
+    private lateinit var bookmarkTitle: TextView
+    private lateinit var allCerpenTitle: TextView
+    private lateinit var newsTitle: TextView
+    private lateinit var newsSubtitle: TextView
     private lateinit var continueSection: LinearLayout
     private lateinit var continueTitle: TextView
     private lateinit var continueMeta: TextView
@@ -36,11 +50,26 @@ class MainActivity : AppCompatActivity() {
     private var newsData: List<NewsArticle> = emptyList()
     private var query: String = ""
     private var selectedGenre: String = "Semua"
+    private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        root = findViewById(R.id.main_root)
+        appTitle = findViewById(R.id.app_title)
+        appSubtitle = findViewById(R.id.app_subtitle)
+        appFooter = findViewById(R.id.app_footer)
+        settingsButton = findViewById(R.id.main_settings_button)
+        tabCerpenButton = findViewById(R.id.tab_cerpen_button)
+        tabBeritaButton = findViewById(R.id.tab_berita_button)
+        cerpenTab = findViewById(R.id.cerpen_tab)
+        newsTab = findViewById(R.id.news_tab)
+        historyTitle = findViewById(R.id.history_title)
+        bookmarkTitle = findViewById(R.id.bookmark_title)
+        allCerpenTitle = findViewById(R.id.all_cerpen_title)
+        newsTitle = findViewById(R.id.news_title)
+        newsSubtitle = findViewById(R.id.news_subtitle)
         continueSection = findViewById(R.id.continue_section)
         continueTitle = findViewById(R.id.continue_title)
         continueMeta = findViewById(R.id.continue_meta)
@@ -71,18 +100,78 @@ class MainActivity : AppCompatActivity() {
         })
 
         refreshButton.setOnClickListener { syncNow() }
+        settingsButton.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        tabCerpenButton.setOnClickListener { showTab(0) }
+        tabBeritaButton.setOnClickListener { showTab(1) }
 
+        applyThemeAndFont()
+        showTab(selectedTab)
         loadContent()
         // Sync HANYA manual (tombol Perbarui) — hemat baterai, tanpa proses background.
     }
 
     override fun onResume() {
         super.onResume()
+        applyThemeAndFont()
         showContinueReading()
         showHistoryAndBookmarks()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
         }
+    }
+
+    /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
+    private fun applyThemeAndFont() {
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        root.setBackgroundColor(palette.bg)
+        appTitle.setTextColor(palette.titleInk)
+        appSubtitle.setTextColor(palette.muted)
+        appFooter.setTextColor(palette.muted)
+        historyTitle.setTextColor(palette.ink)
+        bookmarkTitle.setTextColor(palette.ink)
+        allCerpenTitle.setTextColor(palette.ink)
+        newsTitle.setTextColor(palette.ink)
+        newsSubtitle.setTextColor(palette.muted)
+        continueTitle.setTextColor(palette.ink)
+        continueMeta.setTextColor(palette.muted)
+        searchInput.setTextColor(palette.ink)
+        searchInput.setHintTextColor(palette.muted)
+        showTab(selectedTab)
+    }
+
+    private fun showTab(tab: Int) {
+        selectedTab = tab
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        cerpenTab.visibility = if (tab == 0) View.VISIBLE else View.GONE
+        newsTab.visibility = if (tab == 1) View.VISIBLE else View.GONE
+        styleTabButton(tabCerpenButton, tab == 0, palette)
+        styleTabButton(tabBeritaButton, tab == 1, palette)
+    }
+
+    private fun styleTabButton(button: Button, selected: Boolean, palette: ThemePalette) {
+        if (selected) {
+            button.setBackgroundColor(palette.accent)
+            button.setTextColor(android.graphics.Color.WHITE)
+        } else {
+            button.setBackgroundColor(palette.card)
+            button.setTextColor(palette.accent)
+        }
+    }
+
+    private fun openNewsDetail(article: NewsArticle) {
+        val i = Intent(this, NewsDetailActivity::class.java)
+        i.putExtra(NewsDetailActivity.EXTRA_TITLE, article.title)
+        i.putExtra(NewsDetailActivity.EXTRA_SOURCE, article.source)
+        i.putExtra(NewsDetailActivity.EXTRA_DATE, article.date)
+        i.putExtra(NewsDetailActivity.EXTRA_SUMMARY, article.summary)
+        i.putExtra(NewsDetailActivity.EXTRA_DETAILS, article.details)
+        i.putStringArrayListExtra(
+            NewsDetailActivity.EXTRA_IMAGES,
+            ArrayList(article.images)
+        )
+        startActivity(i)
     }
 
     private fun loadContent() {
@@ -96,7 +185,9 @@ class MainActivity : AppCompatActivity() {
                 loading.visibility = View.GONE
                 buildGenreChips()
                 applyCerpenFilter()
-                newsList.adapter = NewsAdapter(news)
+                val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+                val scale = ThemeHelper.fontScale(this)
+                newsList.adapter = NewsAdapter(news, { openNewsDetail(it) }, palette, scale)
                 showContinueReading()
                 showHistoryAndBookmarks()
             }
@@ -105,18 +196,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildGenreChips() {
         genreRow.removeAllViews()
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val genres = listOf("Semua") + cerpenData.map { it.genre }.distinct()
         for (g in genres) {
             val chip = Button(this).apply {
                 text = g
                 textSize = 13f
                 setTextColor(
-                    if (g == selectedGenre) getColor(android.R.color.white)
-                    else getColor(R.color.accent)
+                    if (g == selectedGenre) android.graphics.Color.WHITE
+                    else palette.accent
                 )
                 setBackgroundColor(
-                    if (g == selectedGenre) getColor(R.color.accent)
-                    else getColor(R.color.card)
+                    if (g == selectedGenre) palette.accent
+                    else palette.card
                 )
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -140,7 +232,9 @@ class MainActivity : AppCompatActivity() {
             (selectedGenre == "Semua" || c.genre == selectedGenre) &&
                 (q.isEmpty() || c.judul.lowercase().contains(q) || c.genre.lowercase().contains(q))
         }
-        cerpenList.adapter = CerpenAdapter(filtered) { openDetail(it) }
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val scale = ThemeHelper.fontScale(this)
+        cerpenList.adapter = CerpenAdapter(filtered, { openDetail(it) }, palette, scale)
     }
 
     private fun showContinueReading() {
@@ -174,7 +268,9 @@ class MainActivity : AppCompatActivity() {
             historySection.visibility = View.GONE
         } else {
             historySection.visibility = View.VISIBLE
-            historyList.adapter = HistoryAdapter(history) { c, s, e -> openReader(c.id, s, e.no) }
+            val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+            val scale = ThemeHelper.fontScale(this)
+            historyList.adapter = HistoryAdapter(history, { c, s, e -> openReader(c.id, s, e.no) }, palette, scale)
         }
         // Bookmark.
         val marks = ProgressStore.getBookmarks(this).mapNotNull { b ->
@@ -186,7 +282,9 @@ class MainActivity : AppCompatActivity() {
             bookmarkSection.visibility = View.GONE
         } else {
             bookmarkSection.visibility = View.VISIBLE
-            bookmarkList.adapter = HistoryAdapter(marks) { c, s, e -> openReader(c.id, s, e.no) }
+            val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+            val scale = ThemeHelper.fontScale(this)
+            bookmarkList.adapter = HistoryAdapter(marks, { c, s, e -> openReader(c.id, s, e.no) }, palette, scale)
         }
     }
 

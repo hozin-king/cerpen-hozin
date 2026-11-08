@@ -1,7 +1,6 @@
 package com.hozinking.cerpen
 
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -28,6 +27,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var biggerButton: Button
     private lateinit var themeButton: Button
     private lateinit var bookmarkButton: Button
+    private lateinit var settingsButton: Button
     private lateinit var loading: ProgressBar
     private lateinit var readerRoot: View
 
@@ -52,6 +52,7 @@ class ReaderActivity : AppCompatActivity() {
         biggerButton = findViewById(R.id.text_bigger)
         themeButton = findViewById(R.id.theme_button)
         bookmarkButton = findViewById(R.id.bookmark_button)
+        settingsButton = findViewById(R.id.reader_settings_button)
         loading = findViewById(R.id.loading)
 
         val cerpenId = intent.getStringExtra(EXTRA_CERPEN_ID) ?: run { finish(); return }
@@ -82,6 +83,9 @@ class ReaderActivity : AppCompatActivity() {
                 if (now) "Ditandai 🔖" else "Tanda dihapus",
                 Toast.LENGTH_SHORT
             ).show()
+        }
+        settingsButton.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
         }
 
         // Simpan progres saat scroll.
@@ -149,34 +153,30 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Terapkan ulang bila tema/ukuran font diubah dari Pengaturan.
+        textSizeSp = ProgressStore.getTextSizeSp(this)
+        theme = ProgressStore.getTheme(this)
+        applyTextSize()
+        applyTheme()
+    }
+
     private fun applyTextSize() {
         bodyText.textSize = textSizeSp
         ProgressStore.setTextSizeSp(this, textSizeSp)
     }
 
     private fun applyTheme() {
-        when (theme) {
-            ProgressStore.THEME_NIGHT -> {
-                readerRoot.setBackgroundColor(Color.parseColor("#121110"))
-                bodyText.setTextColor(Color.parseColor("#E8E4DE"))
-                titleText.setTextColor(Color.parseColor("#F5F1EA"))
-                metaText.setTextColor(Color.parseColor("#A8A29A"))
-                themeButton.text = "Tema: Malam"
-            }
-            ProgressStore.THEME_SEPIA -> {
-                readerRoot.setBackgroundColor(Color.parseColor("#F4ECD8"))
-                bodyText.setTextColor(Color.parseColor("#4A4238"))
-                titleText.setTextColor(Color.parseColor("#2E2820"))
-                metaText.setTextColor(Color.parseColor("#8A7D68"))
-                themeButton.text = "Tema: Sepia"
-            }
-            else -> {
-                readerRoot.setBackgroundColor(Color.parseColor("#FAF7F2"))
-                bodyText.setTextColor(Color.parseColor("#1C1B1A"))
-                titleText.setTextColor(Color.parseColor("#1C1B1A"))
-                metaText.setTextColor(Color.parseColor("#6B6560"))
-                themeButton.text = "Tema: Siang"
-            }
+        val palette = ThemeHelper.palette(theme)
+        readerRoot.setBackgroundColor(palette.bg)
+        bodyText.setTextColor(palette.ink)
+        titleText.setTextColor(palette.titleInk)
+        metaText.setTextColor(palette.muted)
+        themeButton.text = when (theme) {
+            ProgressStore.THEME_NIGHT -> "Tema: Malam"
+            ProgressStore.THEME_SEPIA -> "Tema: Sepia"
+            else -> "Tema: Siang"
         }
     }
 

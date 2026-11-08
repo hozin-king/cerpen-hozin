@@ -17,34 +17,77 @@
 
         <Button
             android:id="@+id/text_smaller"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:text="A-"
-            android:textColor="@color/white" />
+            android:textColor="@color/white"
+            android:textSize="13sp" />
 
         <Button
             android:id="@+id/text_bigger"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:text="A+"
-            android:textColor="@color/white" />
+            android:textColor="@color/white"
+            android:textSize="13sp" />
 
         <Button
             android:id="@+id/theme_button"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
+            android:layout_weight="2"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:text="Tema: Siang"
-            android:textColor="@color/white" />
+            android:textColor="@color/white"
+            android:textSize="13sp" />
 
         <Button
             android:id="@+id/bookmark_button"
-            android:layout_width="wrap_content"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
+            android:layout_weight="2"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
             android:text="☆ Tandai"
-            android:textColor="@color/white" />
+            android:textColor="@color/white"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/reader_settings_button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:minWidth="0dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:text="⚙"
+            android:textColor="@color/white"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <ProgressBar

@@ -10,7 +10,9 @@ import androidx.recyclerview.widget.RecyclerView
 /** Daftar cerpen di Home. */
 class CerpenAdapter(
     private val items: List<Cerpen>,
-    private val onClick: (Cerpen) -> Unit
+    private val onClick: (Cerpen) -> Unit,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
 ) : RecyclerView.Adapter<CerpenAdapter.VH>() {
 
     class VH(v: View) : RecyclerView.ViewHolder(v) {
@@ -30,9 +32,15 @@ class CerpenAdapter(
     override fun onBindViewHolder(h: VH, pos: Int) {
         val c = items[pos]
         h.judul.text = c.judul
+        h.judul.setTextColor(palette.ink)
+        h.judul.textSize = 17f * textScale
         h.genre.text = c.genre
+        h.genre.setTextColor(palette.accent)
         h.meta.text = "${c.totalEpisodes} episode · ${c.seasons.size} season"
+        h.meta.setTextColor(palette.muted)
         h.desc.text = c.deskripsi
+        h.desc.setTextColor(palette.inkSoft)
+        h.desc.textSize = 14f * textScale
         val bmp = if (c.cover.isNotEmpty()) {
             CoverCache.get(h.itemView.context, "covers/${c.cover}", 300)
         } else null
@@ -49,7 +57,10 @@ class CerpenAdapter(
 
 /** Daftar berita teknologi di Home. */
 class NewsAdapter(
-    private val items: List<NewsArticle>
+    private val items: List<NewsArticle>,
+    private val onClick: (NewsArticle) -> Unit = {},
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
 ) : RecyclerView.Adapter<NewsAdapter.VH>() {
 
     class VH(v: View) : RecyclerView.ViewHolder(v) {
@@ -68,10 +79,16 @@ class NewsAdapter(
     override fun onBindViewHolder(h: VH, pos: Int) {
         val a = items[pos]
         h.title.text = a.title
+        h.title.setTextColor(palette.ink)
+        h.title.textSize = 15f * textScale
         h.summary.text = a.summary
+        h.summary.setTextColor(palette.inkSoft)
+        h.summary.textSize = 13f * textScale
         h.meta.text = listOf(a.source, a.date).filter { it.isNotEmpty() }.joinToString(" · ")
-        val bmp = if (!a.image.isNullOrEmpty()) {
-            CoverCache.get(h.itemView.context, "news/${a.image}", 300)
+        h.meta.setTextColor(palette.muted)
+        val firstImage = a.images.firstOrNull() ?: a.image
+        val bmp = if (!firstImage.isNullOrEmpty()) {
+            CoverCache.get(h.itemView.context, "news/$firstImage", 300)
         } else null
         if (bmp != null) {
             h.thumb.setImageBitmap(bmp)
@@ -80,6 +97,7 @@ class NewsAdapter(
             h.thumb.setImageResource(R.drawable.news_placeholder)
             h.thumb.visibility = View.VISIBLE
         }
+        h.itemView.setOnClickListener { onClick(a) }
     }
 
     override fun getItemCount(): Int = items.size
@@ -88,7 +106,9 @@ class NewsAdapter(
 /** Baris riwayat baca / bookmark di Home: "Judul Cerpen — Season X Episode Y: Judul Episode". */
 class HistoryAdapter(
     private val items: List<Triple<Cerpen, Int, Episode>>,
-    private val onClick: (cerpen: Cerpen, season: Int, episode: Episode) -> Unit
+    private val onClick: (cerpen: Cerpen, season: Int, episode: Episode) -> Unit,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
 ) : RecyclerView.Adapter<HistoryAdapter.VH>() {
 
     class VH(v: View) : RecyclerView.ViewHolder(v) {
@@ -105,7 +125,10 @@ class HistoryAdapter(
     override fun onBindViewHolder(h: VH, pos: Int) {
         val (cerpen, season, ep) = items[pos]
         h.title.text = "${cerpen.judul} — ${ep.judul}"
+        h.title.setTextColor(palette.ink)
+        h.title.textSize = 15f * textScale
         h.meta.text = "Season $season · Episode ${ep.no} · ${cerpen.genre}"
+        h.meta.setTextColor(palette.muted)
         h.itemView.setOnClickListener { onClick(cerpen, season, ep) }
     }
 
@@ -115,7 +138,9 @@ class HistoryAdapter(
 /** Daftar episode di halaman detail, dikelompokkan per season. */
 class EpisodeAdapter(
     private val cerpen: Cerpen,
-    private val onClick: (season: Int, episode: Episode) -> Unit
+    private val onClick: (season: Int, episode: Episode) -> Unit,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -157,6 +182,7 @@ class EpisodeAdapter(
         val row = rows[position]
         if (h is HeaderVH && row is Season) {
             h.label.text = "Season ${row.season} · ${row.episodes.size} episode"
+            h.label.setTextColor(palette.accent)
         } else if (h is EpVH && row is Episode) {
             // Cari season pemilik episode ini.
             var seasonNo = 1
@@ -166,8 +192,11 @@ class EpisodeAdapter(
             h.no.text = row.no.toString()
             val marked = ProgressStore.isBookmarked(h.itemView.context, cerpen.id, seasonNo, row.no)
             h.judul.text = if (marked) "🔖 ${row.judul}" else row.judul
+            h.judul.setTextColor(palette.ink)
+            h.judul.textSize = 16f * textScale
             val done = ProgressStore.isDone(h.itemView.context, cerpen.id, seasonNo, row.no)
             h.status.text = if (done) "Sudah dibaca ✓" else "Belum dibaca"
+            h.status.setTextColor(palette.muted)
             h.status.alpha = if (done) 1f else 0.55f
             h.itemView.setOnClickListener { onClick(seasonNo, row) }
         }

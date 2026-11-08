@@ -8,3 +8,38 @@ plugins {
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
+
+// ---- Kunci konten (Content Protection, lihat CONTENT_PROTECTION.md) ----
+// Urutan pencarian kunci AES-256 (base64 32 byte):
+//   1. env CERPEN_CONTENT_KEY (dipakai GitHub Actions, dari secret)
+//   2. properti Gradle CERPEN_CONTENT_KEY
+//   3. file ~/workspace/cerpen-content.key (build lokal; JANGAN di-commit)
+// Nilai mentah TIDAK PERNAH dicetak/log. Yang diteruskan ke native hanya
+// versi ter-XOR (mask tetap 8 byte) sebagai hex, agar kunci bukan string
+// polos di .so. (Tetap bukan anti-reverser — lihat CONTENT_PROTECTION.md.)
+def resolveContentKeyBase64() {
+    def v = System.getenv("CERPEN_CONTENT_KEY")
+    if (v != null && !v.trim().isEmpty()) return v.trim()
+    if (project.hasProperty("CERPEN_CONTENT_KEY")) {
+        def p = project.property("CERPEN_CONTENT_KEY").toString().trim()
+        if (!p.isEmpty()) return p
+    }
+    def keyFile = new File(System.getenv("CERPEN_KEY_FILE") ?: "/home/hatch/workspace/cerpen-content.key")
+    if (keyFile.exists()) return keyFile.text.trim()
+    return null
+}
+
+def keyMask = [0x3C, 0xA7, 0x19, 0xE2, 0x6B, 0xD4, 0x08, 0x5F] as byte[]
+def keyB64 = resolveContentKeyBase64()
+if (keyB64 == null) {
+    throw new GradleException("CERPEN_CONTENT_KEY tidak ditemukan. Set env CERPEN_CONTENT_KEY (base64 32 byte), properti Gradle, atau sediakan file ~/workspace/cerpen-content.key. Lihat CONTENT_PROTECTION.md.")
+}
+def keyBytes = java.util.Base64.decoder.decode(keyB64)
+if (keyBytes.length != 32) {
+    throw new GradleException("CERPEN_CONTENT_KEY harus 32 byte (base64 44 karakter).")
+}
+def maskedKey = new byte[32]
+for (int i = 0; i < 32; i++) maskedKey[i] = (byte) (keyBytes[i] ^ keyMask[i % keyMask.length])
+def toHexList = { byte[] b -> b.collect { String.format("0x%02x", it & 0xFF) }.join(",") }
+ext.contentKeyMaskedHex = toHexList(maskedKey)
+ext.contentKeyMaskHex = toHexList(keyMask)
