@@ -41,6 +41,21 @@ import java.net.URL
  * - Sync GitHub-raw: manifest.json.enc + file .enc saja (bukan
  *   plaintext), tiap file diverifikasi SHA-256 setelah dekripsi.
  */
+/**
+ * Hasil satu kali sync/unduh: apakah ada data baru, berapa file gambar
+ * baru yang diunduh, berapa yang sudah ada di perangkat, dan berapa
+ * yang gagal (perlu coba lagi saat sinyal bagus).
+ */
+data class SyncResult(
+    val changed: Boolean,
+    val downloaded: Int,
+    val alreadyHad: Int,
+    val failed: Int
+)
+
+/** Progress sync: (selesai, total, label tahap). Total 0 = belum diketahui. */
+typealias SyncProgress = (done: Int, total: Int, label: String) -> Unit
+
 object DataManager {
 
     private const val TAG = "DataManager"
@@ -466,121 +481,198 @@ object DataManager {
      * (BUKAN plaintext). Tiap file diverifikasi SHA-256 setelah dekripsi;
      * yang gagal ditolak dan salinan lama dipertahankan. Dijalankan di
      * thread background; callback di main thread dengan true bila ada
-     * data baru.
+     * data baru. [onProgress] melaporkan progres (dipakai bilah progres
+     * di MainActivity): label tahap dulu (total belum diketahui), lalu
+     * hitungan gambar setelah daftarnya diketahui.
      */
-    fun syncFromGithub(context: Context, onDone: (Boolean) -> Unit) {
-        Thread {
-            var changed = false
-            try {
-                if (!isOnline(context)) {
-                    mainHandler.post { onDone(false) }
-                    return@Thread
-                }
-                val key = ContentGuard.getKey()
-                if (key == null) {
-                    Log.w(TAG, "sync dibatalkan: kunci native tidak tersedia")
-                    mainHandler.post { onDone(false) }
-                    return@Thread
-                }
-                // 1. Manifest dulu — tanpa manifest, tidak ada yang diverifikasi.
-                // Manifest diunduh TERENKRIPSI (manifest.json.enc) dan disimpan
-                // apa adanya; dekripsinya in-memory saat dibaca.
-                val manifestEnc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc")
-                if (manifestEnc == null || manifestEnc.isEmpty()) {
-                    Log.w(TAG, "sync dibatalkan: manifest.json.enc tidak terunduh")
-                    mainHandler.post { onDone(false) }
-                    return@Thread
-                }
-                val manifestText = ContentCrypto.decrypt(manifestEnc, key)
-                    ?.let { String(it, Charsets.UTF_8) }
-                val manifest = try {
-                    if (manifestText.isNullOrBlank()) null else JSONObject(manifestText)
-                } catch (e: Exception) {
-                    null
-                }
-                if (manifest == null) {
-                    Log.w(TAG, "sync dibatalkan: manifest.json.enc rusak / gagal dekripsi")
-                    mainHandler.post { onDone(false) }
-                    return@Thread
-                }
-                val encDest = manifestEncFile(context)
-                encDest.parentFile?.mkdirs()
-                encDest.writeBytes(manifestEnc)
-                invalidateManifestCache()
+    fun syncFromGithub(
+        context: Context,
+        onProgress: SyncProgress? = null,
+        onDone: (Boolean) -> Unit
+    ) {
+        syncInternal(context, onProgress) { result -> onDone(result.changed) }
+    }
 
-                // 2. cerpen.json.enc
-                changed = syncOneEncrypted(context, manifest, "cerpen.json", key) || changed
-                // 3. news.json.enc
-                changed = syncOneEncrypted(context, manifest, "news.json", key) || changed
-                // 4. komik.json.enc (+ cover & panel komik, di dalam syncOneEncrypted)
-                changed = syncOneEncrypted(context, manifest, "komik.json", key) || changed
+    /**
+     * Unduh SEMUA konten untuk dibaca offline: manifest + 3 JSON + semua
+     * gambar (cover cerpen, cover + panel komik, gambar berita) yang
+     * belum ada di perangkat. Jalur unduhnya SAMA dengan sync biasa,
+     * hanya ringkasannya yang dikembalikan penuh supaya pengguna tahu
+     * semuanya sudah offline (atau berapa yang gagal dan perlu diulang).
+     */
+    fun downloadAllForOffline(
+        context: Context,
+        onProgress: SyncProgress? = null,
+        onDone: (SyncResult) -> Unit
+    ) {
+        syncInternal(context, onProgress, onDone)
+    }
+
+    /** Satu thread background untuk sync maupun unduh-semua; [onDone] di main thread. */
+    private fun syncInternal(
+        context: Context,
+        onProgress: SyncProgress?,
+        onDone: (SyncResult) -> Unit
+    ) {
+        Thread {
+            val result = try {
+                runSync(context, onProgress)
             } catch (e: Exception) {
                 e.printStackTrace()
+                SyncResult(false, 0, 0, 0)
             }
-            mainHandler.post { onDone(changed) }
+            mainHandler.post { onDone(result) }
         }.start()
     }
 
-    /** Unduh + verifikasi satu file .enc; true bila ada data baru yang valid. */
-    private fun syncOneEncrypted(
+    /** Inti sync: manifest -> 3 JSON -> semua gambar yang belum ada. */
+    private fun runSync(context: Context, onProgress: SyncProgress?): SyncResult {
+        fun report(done: Int, total: Int, label: String) {
+            onProgress?.let { cb -> mainHandler.post { cb(done, total, label) } }
+        }
+        if (!isOnline(context)) return SyncResult(false, 0, 0, 0)
+        val key = ContentGuard.getKey()
+        if (key == null) {
+            Log.w(TAG, "sync dibatalkan: kunci native tidak tersedia")
+            return SyncResult(false, 0, 0, 0)
+        }
+        // 1. Manifest dulu — tanpa manifest, tidak ada yang diverifikasi.
+        // Manifest diunduh TERENKRIPSI (manifest.json.enc) dan disimpan
+        // apa adanya; dekripsinya in-memory saat dibaca.
+        report(0, 0, "Mengunduh daftar konten…")
+        val manifestEnc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc")
+        if (manifestEnc == null || manifestEnc.isEmpty()) {
+            Log.w(TAG, "sync dibatalkan: manifest.json.enc tidak terunduh")
+            return SyncResult(false, 0, 0, 0)
+        }
+        val manifestText = ContentCrypto.decrypt(manifestEnc, key)
+            ?.let { String(it, Charsets.UTF_8) }
+        val manifest = try {
+            if (manifestText.isNullOrBlank()) null else JSONObject(manifestText)
+        } catch (e: Exception) {
+            null
+        }
+        if (manifest == null) {
+            Log.w(TAG, "sync dibatalkan: manifest.json.enc rusak / gagal dekripsi")
+            return SyncResult(false, 0, 0, 0)
+        }
+        val encDest = manifestEncFile(context)
+        encDest.parentFile?.mkdirs()
+        encDest.writeBytes(manifestEnc)
+        invalidateManifestCache()
+
+        // 2. Tiga JSON — unduh + verifikasi + simpan, lalu kumpulkan
+        //    semua jalur gambar yang dirujuk isinya.
+        var changed = false
+        var downloaded = 0
+        var failed = 0
+        val imagePaths = ArrayList<String>()
+        val jsonLabels = mapOf(
+            "cerpen.json" to "Mengunduh daftar cerpen…",
+            "news.json" to "Mengunduh daftar berita…",
+            "komik.json" to "Mengunduh daftar komik…"
+        )
+        for (jsonName in jsonLabels.keys) {
+            report(0, 0, jsonLabels[jsonName] ?: "Mengunduh $jsonName…")
+            val text = fetchVerifiedJson(context, manifest, jsonName, key)
+            if (text == null) {
+                failed++
+                continue
+            }
+            changed = true
+            imagePaths += collectImagePaths(text, jsonName)
+        }
+
+        // 3. Semua gambar yang belum ada di perangkat — unduh satu per
+        //    satu dengan progres determinan (total sudah diketahui).
+        val distinct = imagePaths.distinct()
+        val missing = distinct.filter { path ->
+            val dest = File(dataDir(context), "$path.enc")
+            !(dest.exists() && dest.length() > 0)
+        }
+        val alreadyHad = distinct.size - missing.size
+        for ((i, path) in missing.withIndex()) {
+            report(i, missing.size, "Mengunduh gambar")
+            if (syncOneImage(context, manifest, path, key)) downloaded++ else failed++
+        }
+        if (missing.isNotEmpty()) {
+            report(missing.size, missing.size, "Gambar selesai")
+        }
+        migratePlaintextAway(context)
+        return SyncResult(changed, downloaded, alreadyHad, failed)
+    }
+
+    /**
+     * Unduh + verifikasi satu file .enc JSON; simpan ke internal storage
+     * dan kembalikan teks terdekripsinya (hanya di memori). Null bila
+     * gagal diunduh atau verifikasi gagal.
+     */
+    private fun fetchVerifiedJson(
         context: Context,
         manifest: JSONObject,
         jsonName: String,
         key: ByteArray
-    ): Boolean {
-        val entry = manifest.optJSONObject(jsonName) ?: return false
+    ): String? {
+        val entry = manifest.optJSONObject(jsonName) ?: return null
         val sha = entry.optString("sha256", "")
         val file = entry.optString("file", "")
-        if (sha.isEmpty() || file.isEmpty()) return false
-        val enc = fetchBytes("$GITHUB_RAW_BASE/$file") ?: return false
+        if (sha.isEmpty() || file.isEmpty()) return null
+        val enc = fetchBytes("$GITHUB_RAW_BASE/$file") ?: return null
         val text = ContentCrypto.decryptVerified(enc, key, sha)
         if (text == null) {
             Log.w(TAG, "sync $jsonName: verifikasi gagal, file ditolak")
-            return false
+            return null
         }
         return try {
             val encDest = File(dataDir(context), file)
             encDest.parentFile?.mkdirs()
             encDest.writeBytes(enc)
             // Hasil dekripsi HANYA di memori — tidak ditulis plaintext ke disk.
-            if (jsonName == "cerpen.json") {
-                val parsed = ContentLoader.parseCerpen(text)
-                for (c in parsed) {
-                    if (c.cover.isNotEmpty()) {
-                        syncOneImage(context, manifest, "covers/${c.cover}", key)
+            text
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Kumpulkan jalur aset gambar yang dirujuk satu JSON terdekripsi:
+     * cover cerpen ("covers/..."), cover + panel komik
+     * ("komik/covers/...", "komik/panels/..."), gambar berita
+     * ("news/img/...").
+     */
+    private fun collectImagePaths(text: String, jsonName: String): List<String> {
+        val out = ArrayList<String>()
+        try {
+            when (jsonName) {
+                "cerpen.json" -> {
+                    for (c in ContentLoader.parseCerpen(text)) {
+                        if (c.cover.isNotEmpty()) out += "covers/${c.cover}"
                     }
                 }
-            } else if (jsonName == "komik.json") {
-                val parsed = ContentLoader.parseKomik(text)
-                for (k in parsed) {
-                    if (k.cover.isNotEmpty()) {
-                        syncOneImage(context, manifest, "komik/covers/${k.cover}", key)
-                    }
-                    for (e in k.episodes) {
-                        for (p in e.panels) {
-                            if (p.image.isNotEmpty()) {
-                                syncOneImage(context, manifest, "komik/panels/${p.image}", key)
+                "komik.json" -> {
+                    for (k in ContentLoader.parseKomik(text)) {
+                        if (k.cover.isNotEmpty()) out += "komik/covers/${k.cover}"
+                        for (e in k.episodes) {
+                            for (p in e.panels) {
+                                if (p.image.isNotEmpty()) out += "komik/panels/${p.image}"
                             }
                         }
                     }
                 }
-            } else {
-                val parsed = ContentLoader.parseNews(text)
-                for (a in parsed) {
-                    for (img in a.images) {
-                        val name = img.substringAfterLast("/")
-                        if (name.isNotEmpty()) {
-                            syncOneImage(context, manifest, "news/img/$name", key)
+                else -> {
+                    for (a in ContentLoader.parseNews(text)) {
+                        for (img in a.images) {
+                            val name = img.substringAfterLast("/")
+                            if (name.isNotEmpty()) out += "news/img/$name"
                         }
                     }
                 }
             }
-            migratePlaintextAway(context)
-            true
         } catch (e: Exception) {
             e.printStackTrace()
-            false
         }
+        return out
     }
 
     /**

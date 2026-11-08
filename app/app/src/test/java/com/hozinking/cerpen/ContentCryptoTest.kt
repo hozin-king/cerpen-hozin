@@ -6,7 +6,9 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayOutputStream
 import java.util.Base64
+import java.util.zip.GZIPOutputStream
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.SecretKeySpec
@@ -20,6 +22,10 @@ import javax.crypto.spec.SecretKeySpec
  * Test ini membuktikan blob yang dienkripsi pipeline Python bisa
  * didekripsi + diverifikasi SHA oleh Kotlin — dan sebaliknya (round-trip
  * enkripsi Kotlin -> dekripsi Kotlin).
+ *
+ * v1.1.4: ditambah uji lapisan gzip pada .enc JSON (gunzip setelah
+ * verifikasi SHA di `decryptVerified`; gambar via `decryptVerifiedBytes`
+ * tidak ikut ter-gunzip).
  */
 class ContentCryptoTest {
 
@@ -87,15 +93,7 @@ class ContentCryptoTest {
     fun `round-trip enkripsi Kotlin ke dekripsi Kotlin`() {
         val key = testKey()
         val plain = "halo cerpen terenkripsi".toByteArray(Charsets.UTF_8)
-        val iv = ByteArray(12) { (it * 7 + 3).toByte() }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(
-            Cipher.ENCRYPT_MODE,
-            SecretKeySpec(key, "AES"),
-            GCMParameterSpec(128, iv)
-        )
-        val ct = cipher.doFinal(plain)
-        val blob = iv + ct // format .enc: IV 12B + ciphertext+tag
+        val blob = encryptBlob(plain, key)
         val back = ContentCrypto.decrypt(blob, key)
         assertNotNull(back)
         assertTrue(plain.contentEquals(back!!))
@@ -103,5 +101,84 @@ class ContentCryptoTest {
             ContentCrypto.sha256Hex(plain),
             ContentCrypto.sha256Hex(back)
         )
+    }
+
+    // ---- v1.1.4: lapisan gzip pada .enc JSON ----
+
+    /** Enkripsi satu blob format .enc (IV 12B + ciphertext+tag) dari plaintext. */
+    private fun encryptBlob(plain: ByteArray, key: ByteArray): ByteArray {
+        val iv = ByteArray(12) { (it * 7 + 3).toByte() }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(
+            Cipher.ENCRYPT_MODE,
+            SecretKeySpec(key, "AES"),
+            GCMParameterSpec(128, iv)
+        )
+        return iv + cipher.doFinal(plain)
+    }
+
+    /** gzip (level default; magic 0x1F 0x8B sama seperti gzip.compress Python). */
+    private fun gzipBytes(bytes: ByteArray): ByteArray {
+        val out = ByteArrayOutputStream()
+        GZIPOutputStream(out).use { it.write(bytes) }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `gzip lalu enkripsi - decryptVerified mengembalikan JSON asli`() {
+        val key = testKey()
+        val json = """{"cerpen":[{"id":"c1","judul":"Tes Gzip","genre":"Misteri"}]}"""
+        val gzipped = gzipBytes(json.toByteArray(Charsets.UTF_8))
+        // Magic gzip di 2 byte awal, seperti output gzip.compress Python.
+        assertEquals(0x1F.toByte(), gzipped[0])
+        assertEquals(0x8B.toByte(), gzipped[1])
+        val enc = encryptBlob(gzipped, key)
+        // Manifest v1.1.4 menyimpan SHA-256 dari byte TER-GZIP.
+        val text = ContentCrypto.decryptVerified(enc, key, ContentCrypto.sha256Hex(gzipped))
+        assertNotNull("JSON ter-gzip gagal didekripsi / di-gunzip", text)
+        assertEquals(json, text)
+        assertEquals("c1", JSONObject(text!!).getJSONArray("cerpen").getJSONObject(0).getString("id"))
+    }
+
+    @Test
+    fun `enc lama tanpa gzip tetap ter-parse`() {
+        val key = testKey()
+        val json = """{"news":[{"id":"n1","judul":"Berita Lama"}]}"""
+        val plain = json.toByteArray(Charsets.UTF_8)
+        val enc = encryptBlob(plain, key)
+        val text = ContentCrypto.decryptVerified(enc, key, ContentCrypto.sha256Hex(plain))
+        assertNotNull(".enc lama (tanpa gzip) gagal dibaca", text)
+        assertEquals(json, text)
+    }
+
+    @Test
+    fun `SHA dihitung dari byte ter-gzip bukan plaintext JSON`() {
+        val key = testKey()
+        val json = """{"cerpen":[]}"""
+        val gzipped = gzipBytes(json.toByteArray(Charsets.UTF_8))
+        val enc = encryptBlob(gzipped, key)
+        // SHA dari JSON polos (bukan dari byte ter-gzip) HARUS ditolak.
+        assertNull(
+            ContentCrypto.decryptVerified(enc, key, ContentCrypto.sha256Hex(json.toByteArray(Charsets.UTF_8)))
+        )
+    }
+
+    @Test
+    fun `magic gzip ada tapi isi rusak ditolak`() {
+        val key = testKey()
+        val corrupt = byteArrayOf(0x1F.toByte(), 0x8B.toByte(), 0x08, 0x00, 0x11, 0x22, 0x33, 0x44)
+        val enc = encryptBlob(corrupt, key)
+        assertNull(ContentCrypto.decryptVerified(enc, key, ContentCrypto.sha256Hex(corrupt)))
+    }
+
+    @Test
+    fun `gambar tidak ikut ter-gunzip walau diawali magic gzip`() {
+        val key = testKey()
+        // Byte gambar hipotetis yang kebetulan diawali 0x1F 0x8B.
+        val image = byteArrayOf(0x1F.toByte(), 0x8B.toByte(), 0x08, 0x00) + "bukan-gzip".toByteArray(Charsets.UTF_8)
+        val enc = encryptBlob(image, key)
+        val bytes = ContentCrypto.decryptVerifiedBytes(enc, key, ContentCrypto.sha256Hex(image))
+        assertNotNull("gambar gagal verifikasi", bytes)
+        assertTrue("decryptVerifiedBytes harus mengembalikan byte apa adanya", image.contentEquals(bytes!!))
     }
 }

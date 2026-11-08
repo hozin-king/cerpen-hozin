@@ -308,7 +308,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Gambar komik diunduh saat Perbarui Konten"
+                android:text="Gambar komik diunduh saat Perbarui Konten / Unduh Semua"
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
 
@@ -327,6 +327,36 @@
             android:layout_marginTop="20dp"
             android:layout_marginBottom="8dp"
             android:text="Perbarui Konten"
+            android:textColor="@color/white" />
+
+        <!-- v1.1.4: progres sync/unduh (bilah + teks tahap) + tombol
+             unduh-semua untuk dibaca offline. -->
+        <ProgressBar
+            android:id="@+id/sync_progress_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:max="100"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/sync_progress_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Mengunduh…"
+            android:textColor="@color/muted"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/download_all_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp"
+            android:text="Unduh Semua untuk Offline"
             android:textColor="@color/white" />
 
         <!-- v1.2: angka versi DIHAPUS dari layout — diisi runtime dari

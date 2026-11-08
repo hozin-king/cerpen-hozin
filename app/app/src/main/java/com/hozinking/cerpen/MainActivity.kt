@@ -51,6 +51,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var komikList: RecyclerView
     private lateinit var loading: ProgressBar
     private lateinit var refreshButton: Button
+    private lateinit var downloadAllButton: Button
+    private lateinit var syncProgressBar: ProgressBar
+    private lateinit var syncProgressText: TextView
     private lateinit var swipeRefresh: SwipeRefreshLayout
 
     private var cerpenData: List<Cerpen> = emptyList()
@@ -97,6 +100,9 @@ class MainActivity : AppCompatActivity() {
         komikList = findViewById(R.id.komik_list)
         loading = findViewById(R.id.loading)
         refreshButton = findViewById(R.id.refresh_button)
+        downloadAllButton = findViewById(R.id.download_all_button)
+        syncProgressBar = findViewById(R.id.sync_progress_bar)
+        syncProgressText = findViewById(R.id.sync_progress_text)
         swipeRefresh = findViewById(R.id.swipe_refresh)
 
         // v1.2: pull-to-refresh memakai jalur sync yang SAMA dengan tombol
@@ -119,6 +125,7 @@ class MainActivity : AppCompatActivity() {
         })
 
         refreshButton.setOnClickListener { syncNow() }
+        downloadAllButton.setOnClickListener { downloadAll() }
         settingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -360,21 +367,86 @@ class MainActivity : AppCompatActivity() {
         startActivity(i)
     }
 
+    /** Matikan kedua tombol sync selama satu proses berjalan. */
+    private fun setSyncBusy(busy: Boolean) {
+        refreshButton.isEnabled = !busy
+        downloadAllButton.isEnabled = !busy
+    }
+
+    /** Tampilkan progres sync: bilah determinan bila total diketahui. */
+    private fun showSyncProgress(done: Int, total: Int, label: String) {
+        syncProgressBar.visibility = View.VISIBLE
+        syncProgressText.visibility = View.VISIBLE
+        if (total > 0) {
+            syncProgressBar.isIndeterminate = false
+            syncProgressBar.max = total
+            syncProgressBar.progress = done
+            syncProgressText.text = "$label ($done/$total)"
+        } else {
+            syncProgressBar.isIndeterminate = true
+            syncProgressText.text = label
+        }
+    }
+
+    private fun hideSyncProgress() {
+        syncProgressBar.visibility = View.GONE
+        syncProgressText.visibility = View.GONE
+    }
+
     private fun syncNow() {
         // Cegah sync ganda (tombol + tarik bersamaan).
         if (!refreshButton.isEnabled) return
-        refreshButton.isEnabled = false
+        setSyncBusy(true)
         refreshButton.text = "Memperbarui..."
         swipeRefresh.isRefreshing = true
-        DataManager.syncFromGithub(this) { changed ->
-            refreshButton.isEnabled = true
+        DataManager.syncFromGithub(this, onProgress = { done, total, label ->
+            showSyncProgress(done, total, label)
+        }) { changed ->
+            setSyncBusy(false)
             refreshButton.text = "Perbarui Konten"
             swipeRefresh.isRefreshing = false
+            hideSyncProgress()
             if (changed) {
                 loadContent()
                 Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "Sudah terbaru / tidak ada internet", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * Unduh SEMUA konten untuk dibaca offline (cover cerpen, cover +
+     * panel komik, gambar berita) dengan progres + ringkasan di akhir,
+     * supaya tidak ada lagi cover/panel kosong saat tanpa internet.
+     */
+    private fun downloadAll() {
+        if (!refreshButton.isEnabled) return
+        setSyncBusy(true)
+        downloadAllButton.text = "Mengunduh..."
+        swipeRefresh.isRefreshing = true
+        DataManager.downloadAllForOffline(this, onProgress = { done, total, label ->
+            showSyncProgress(done, total, label)
+        }) { result ->
+            setSyncBusy(false)
+            downloadAllButton.text = "Unduh Semua untuk Offline"
+            swipeRefresh.isRefreshing = false
+            hideSyncProgress()
+            loadContent()
+            if (result.downloaded == 0 && result.alreadyHad == 0) {
+                Toast.makeText(this, "Tidak ada internet / daftar konten gagal diunduh", Toast.LENGTH_SHORT).show()
+            } else if (result.failed == 0) {
+                Toast.makeText(
+                    this,
+                    "Semua konten sudah offline (${result.downloaded} baru, ${result.alreadyHad} sudah ada)",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(
+                    this,
+                    "${result.downloaded} file diunduh, ${result.failed} gagal — coba lagi saat sinyal bagus",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }

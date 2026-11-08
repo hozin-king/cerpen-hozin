@@ -52,11 +52,40 @@ masih plaintext: enkripsi semuanya. Perubahan terhadap v1.1:
   (`komik.json.enc` + gambar) lewat jalur yang sama; reader
   mendekripsi panel in-memory; plaintext tidak pernah ditulis ke disk.
 
-## Format (disepakati dengan pipeline, JANGAN ubah sepihak)
+## v1.1.4 — Lapisan gzip pada .enc JSON (8 Nov 2026)
+
+- **Yang di-gzip: hanya ketiga JSON** — `cerpen.json`, `news.json`,
+  `komik.json`. Pipeline Python meng-gzip plaintext dulu
+  (`gzip.compress(data, compresslevel=9, mtime=0)`) BARU dienkripsi
+  AES-256-GCM. Urutan: JSON -> gzip -> AES-GCM -> `.enc`.
+  **Gambar (covers, panels, news img) TIDAK di-gzip** (JPEG/PNG sudah
+  terkompresi; gzip hanya membuang waktu + byte).
+- **Manifest**: entri `sha256` untuk ketiga JSON adalah **SHA-256 dari
+  byte TER-GZIP** (bukan dari JSON polos) — karena SHA diverifikasi
+  terhadap hasil dekripsi, sebelum gunzip. Manifest itu sendiri
+  (`manifest.json.enc`) TIDAK di-gzip.
+- **Skema enkripsi TIDAK berubah**: format blob tetap IV 12B +
+  ciphertext+tag GCM 16B, kunci sama, dekripsi sama.
+- **Aplikasi** (`ContentCrypto.decryptVerified`, jalur teks saja):
+  setelah dekripsi + verifikasi SHA, bila 2 byte awal = magic gzip
+  (`0x1F 0x8B`) hasilnya di-gunzip (`GZIPInputStream`) baru jadi
+  String; bila tidak ada magic, byte dipakai apa adanya. Magic ada
+  tapi gunzip gagal -> null (fail-closed, konten ditolak).
+  `decryptVerifiedBytes` (jalur gambar) TIDAK berubah — tanpa gunzip.
+- **Backward-compatible**: `.enc` lama (JSON polos, tanpa gzip) tetap
+  dibaca — deteksi hanya dari magic byte, bukan dari versi/manifest.
+  Jadi v1.1.4 membaca konten v1.1.2/v1.1.3 maupun konten baru
+  ter-gzip, tanpa migrasi. Sebaliknya, aplikasi LAMA (<= v1.1.3)
+  yang membaca `.enc` JSON baru akan mendapat byte gzip mentah dan
+  gagal parse JSON — jadi konten ter-gzip hanya boleh di-sync setelah
+  v1.1.4 terbit.
+- **Tidak ada plaintext ke disk**: gunzip terjadi in-memory, sama
+  seperti dekripsi; hasil gunzip tidak pernah ditulis ke file.
 
 | Item | Isi |
 |---|---|
-| Plaintext | `cerpen.json` / `news.json` (JSON seperti v1.0); gambar JPG/PNG/WebP |
+| Plaintext | `cerpen.json` / `news.json` / `komik.json` (JSON seperti v1.0); gambar JPG/PNG/WebP |
+| Kompresi (v1.1.4, JSON saja) | gzip level 9, `mtime=0`, SEBELUM enkripsi; SHA manifest = SHA-256 byte ter-gzip; gambar TIDAK di-gzip |
 | Enkripsi | AES-256-GCM, IV acak 12 byte per file |
 | File terenkripsi | `data/cerpen.json.enc` / `data/news.json.enc` / `data/manifest.json.enc` / `data/covers/<nama>.enc` / `data/news/img/<nama>.enc` — biner: **IV 12B + ciphertext + tag GCM 16B** (tag menempel di akhir, bawaan AESGCM) |
 | Manifest | `data/manifest.json.enc` (TERENKRIPSI sejak v1.2): `{"cerpen.json": {"sha256": "<hex sha256 dari plaintext>", "file": "cerpen.json.enc"}, "news.json": {...}, "covers/cover_01.jpg": {...}, "news/img/<nama>": {...}}` |

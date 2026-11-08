@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.1.3"
+        versionCode = 6
+        versionName = "1.1.4"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya
@@ -112,4 +112,13 @@ dependencies {
     // "Stub!") agar NewsDetailsFormatterTest bisa jalan di JVM.
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+}
+
+// Unit test di VM ini: worker Gradle berkomunikasi dengan daemon lewat
+// loopback Java, yang rusak tanpa preferIPv4Stack (lihat AGENTS.md,
+// pelajaran 18 Okt 2026: byte loopback korup — test executor mati
+// dengan NPE "resultProcessor is null" sebelum menulis hasil). Di CI
+// (GitHub Actions) flag ini tidak berpengaruh.
+tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+    jvmArgs("-Djava.net.preferIPv4Stack=true")
 }
