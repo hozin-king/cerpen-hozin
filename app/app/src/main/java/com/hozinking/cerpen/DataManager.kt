@@ -460,21 +460,36 @@ object DataManager {
         }
     }
 
+    /**
+     * GET satu URL, kembalikan body bila HTTP 200, null bila gagal.
+     * v1.1.6: 1x ulangi bila gagal (jeda 500 ms) — sinyal HP sering
+     * putus sesaat, dan manifest adalah gerbang seluruh sync.
+     */
     private fun fetchBytes(url: String): ByteArray? {
-        var conn: HttpURLConnection? = null
-        return try {
-            conn = (URL(url).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = 20000
-                setRequestProperty("User-Agent", "CerpenHozin/1.1")
+        repeat(2) { attempt ->
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 20000
+                    setRequestProperty("User-Agent", "CerpenHozin/1.1")
+                }
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    return conn.inputStream.readBytes()
+                }
+            } catch (e: Exception) {
+                // Jatuh ke ulangi di bawah (kecuali percobaan terakhir).
+            } finally {
+                conn?.disconnect()
             }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
-            conn.inputStream.readBytes()
-        } catch (e: Exception) {
-            null
-        } finally {
-            conn?.disconnect()
+            if (attempt == 0) {
+                try {
+                    Thread.sleep(500)
+                } catch (ignored: InterruptedException) {
+                }
+            }
         }
+        return null
     }
 
     /**

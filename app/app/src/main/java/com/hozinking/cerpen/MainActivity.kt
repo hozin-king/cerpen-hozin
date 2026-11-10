@@ -165,8 +165,12 @@ class MainActivity : AppCompatActivity() {
         applyThemeAndFont()
         showTab(selectedTab)
         loadContent()
-        // Sync HANYA manual (tombol Perbarui) — hemat baterai, tanpa proses background.
+        // v1.1.6: konten auto-update — tiap buka aplikasi (throttle 30 mnt)
+        // langsung cek manifest GitHub dan unduh yang baru, tanpa ketuk
+        // tombol Perbarui. Gagal (tanpa internet) = diam, konten lama
+        // tetap bisa dibaca.
         checkForAppUpdate()
+        autoSyncContent()
     }
 
     override fun onResume() {
@@ -176,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         showHistoryAndBookmarks()
         showPendingInstallIfReady()
         checkForAppUpdate()
+        autoSyncContent()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
         }
@@ -504,6 +509,33 @@ class MainActivity : AppCompatActivity() {
     private fun hideSyncProgress() {
         syncProgressBar.visibility = View.GONE
         syncProgressText.visibility = View.GONE
+    }
+
+    // ============ AUTO-UPDATE KONTEN (v1.1.6) ============
+    // Tiap buka aplikasi / kembali ke aplikasi: cek manifest GitHub dan
+    // unduh konten baru (cerpen/berita/komik) secara otomatis, tanpa
+    // ketuk tombol Perbarui. Throttle maks 1x per 30 menit (dicatat di
+    // prefs yang sama dengan cek update aplikasi). Fail-open: tanpa
+    // internet atau gagal = diam, konten lama tetap bisa dibaca. Toast
+    // HANYA bila ada konten baru — bila sudah terbaru, diam.
+    private fun autoSyncContent() {
+        // Jangan tumpuk dengan sync manual yang sedang berjalan.
+        if (!refreshButton.isEnabled) return
+        val now = System.currentTimeMillis()
+        val last = updatePrefs.getLong("last_auto_sync_ms", 0)
+        if (now - last < 30 * 60 * 1000L) return
+        updatePrefs.edit().putLong("last_auto_sync_ms", now).apply()
+        setSyncBusy(true)
+        DataManager.syncFromGithub(this, onProgress = { done, total, label ->
+            showSyncProgress(done, total, label)
+        }) { changed ->
+            setSyncBusy(false)
+            hideSyncProgress()
+            if (changed) {
+                loadContent()
+                Toast.makeText(this, "Konten baru diunduh", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun syncNow() {
