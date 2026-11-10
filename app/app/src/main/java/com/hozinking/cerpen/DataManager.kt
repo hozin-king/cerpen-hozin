@@ -813,7 +813,15 @@ object DataManager {
 
         // 2. Tiga JSON — unduh + verifikasi + simpan, lalu kumpulkan
         //    semua jalur gambar yang dirujuk isinya.
-        var changed = false
+        // v1.1.7: potret daftar LAMA sebelum unduh — dipakai membandingkan
+        // apa yang benar-benar bertambah (badge "diperbarui" + toast jujur).
+        val oldCerpen = loadCerpen(context).associateBy { it.id }
+        val oldKomik = loadKomik(context).associateBy { it.id }
+        val newTexts = HashMap<String, String>()
+        // v1.1.7: diisi diffAndMarkUpdates di akhir (dulu `= false` + true
+        // di tiap fetch berhasil — itu yang bikin toast "Konten baru
+        // diunduh" muncul walau kontennya sama).
+        var changed: Boolean
         var downloaded = 0
         var failed = 0
         val imagePaths = ArrayList<String>()
@@ -829,7 +837,7 @@ object DataManager {
                 failed++
                 continue
             }
-            changed = true
+            newTexts[jsonName] = text
             imagePaths += collectImagePaths(text, jsonName)
         }
 
@@ -848,8 +856,75 @@ object DataManager {
         if (missing.isNotEmpty()) {
             report(missing.size, missing.size, "Gambar selesai")
         }
+        // v1.1.7: bandingkan lama vs baru; yang bertambah dicatat untuk
+        // badge "diperbarui". changed hanya true bila ADA yang bertambah
+        // (dulu true di tiap sync yang berhasil, walau kontennya sama).
+        changed = diffAndMarkUpdates(context, oldCerpen, oldKomik, newTexts)
+        if ((oldCerpen.isEmpty() && oldKomik.isEmpty()) && newTexts.isNotEmpty()) {
+            // Sync pertama (belum ada data lokal): konten baru saja tiba.
+            changed = true
+        }
         migratePlaintextAway(context)
         return SyncResult(changed, downloaded, alreadyHad, failed)
+    }
+
+    /**
+     * v1.1.7: bandingkan daftar lama vs baru; item yang bertambah dicatat
+     * ke UpdatedStore (badge "diperbarui"). Kembalikan true bila ada satu
+     * pun penambahan. Daftar lama yang KOSONG (sync pertama) tidak menandai
+     * apa-apa — konten bundel adalah baseline, bukan pembaruan.
+     */
+    private fun diffAndMarkUpdates(
+        context: Context,
+        oldCerpen: Map<String, Cerpen>,
+        oldKomik: Map<String, Komik>,
+        newTexts: Map<String, String>
+    ): Boolean {
+        var any = false
+        newTexts["cerpen.json"]?.let { text ->
+            if (oldCerpen.isNotEmpty()) {
+                val parsed = try {
+                    ContentLoader.parseCerpen(text)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                for (c in parsed) {
+                    val old = oldCerpen[c.id]
+                    val kind = when {
+                        old == null -> UpdatedStore.Kind.NEW
+                        c.seasons.size > old.seasons.size -> UpdatedStore.Kind.SEASON
+                        c.totalEpisodes > old.totalEpisodes -> UpdatedStore.Kind.EPISODE
+                        else -> null
+                    }
+                    if (kind != null) {
+                        UpdatedStore.markCerpen(context, c.id, kind)
+                        any = true
+                    }
+                }
+            }
+        }
+        newTexts["komik.json"]?.let { text ->
+            if (oldKomik.isNotEmpty()) {
+                val parsed = try {
+                    ContentLoader.parseKomik(text)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                for (k in parsed) {
+                    val old = oldKomik[k.id]
+                    val kind = when {
+                        old == null -> UpdatedStore.Kind.NEW
+                        k.totalEpisodes > old.totalEpisodes -> UpdatedStore.Kind.EPISODE
+                        else -> null
+                    }
+                    if (kind != null) {
+                        UpdatedStore.markKomik(context, k.id, kind)
+                        any = true
+                    }
+                }
+            }
+        }
+        return any
     }
 
     /**

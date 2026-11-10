@@ -33,6 +33,8 @@ class CerpenAdapter(
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
+        /** v1.1.7: badge "Baru" / "Season diperbarui" / "Episode diperbarui". */
+        val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
         override val downloadButton: Button = v.findViewById(R.id.download_button)
         override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
@@ -62,8 +64,19 @@ class CerpenAdapter(
         } else {
             CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         }
-        // Badge NEW: cerpen terbaru (data cerpen belum punya tanggal).
-        h.badgeNew.visibility = if (c.id == newestId) View.VISIBLE else View.GONE
+        // v1.1.7: badge "diperbarui" didahulukan atas badge NEW — satu
+        // kartu cukup satu badge. Badge diperbarui hilang begitu pengguna
+        // membuka detail item ini (UpdatedStore.clearCerpen).
+        val updatedText = UpdatedStore.badgeTextCerpen(h.itemView.context, c)
+        if (updatedText != null) {
+            h.badgeUpdated.text = updatedText
+            h.badgeUpdated.visibility = View.VISIBLE
+            h.badgeNew.visibility = View.GONE
+        } else {
+            h.badgeUpdated.visibility = View.GONE
+            // Badge NEW: cerpen terbaru (data cerpen belum punya tanggal).
+            h.badgeNew.visibility = if (c.id == newestId) View.VISIBLE else View.GONE
+        }
         // Status unduh: sudah offline = ikon, belum = tombol Unduh.
         val ctx = h.itemView.context
         val offline = DataManager.isCerpenOffline(ctx, c)
@@ -279,6 +292,8 @@ class KomikAdapter(
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
+        /** v1.1.7: badge "Baru" / "Episode diperbarui". */
+        val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
         override val downloadButton: Button = v.findViewById(R.id.download_button)
         override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
@@ -316,7 +331,16 @@ class KomikAdapter(
         } else {
             CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         }
-        h.badgeNew.visibility = if (k.id == newestId) View.VISIBLE else View.GONE
+        // v1.1.7: badge "diperbarui" didahulukan atas badge NEW.
+        val updatedText = UpdatedStore.badgeTextKomik(ctx, k)
+        if (updatedText != null) {
+            h.badgeUpdated.text = updatedText
+            h.badgeUpdated.visibility = View.VISIBLE
+            h.badgeNew.visibility = View.GONE
+        } else {
+            h.badgeUpdated.visibility = View.GONE
+            h.badgeNew.visibility = if (k.id == newestId) View.VISIBLE else View.GONE
+        }
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
         h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE

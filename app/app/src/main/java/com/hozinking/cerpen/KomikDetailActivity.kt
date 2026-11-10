@@ -63,6 +63,8 @@ class KomikDetailActivity : AppCompatActivity() {
         applyThemeAndFont()
 
         val id = intent.getStringExtra(EXTRA_KOMIK_ID) ?: run { finish(); return }
+        // v1.1.7: membuka detail = sudah melihat pembaruan — badge hilang.
+        UpdatedStore.clearKomik(this, id)
         loading.visibility = View.VISIBLE
         Thread {
             val list = DataManager.loadKomik(this)

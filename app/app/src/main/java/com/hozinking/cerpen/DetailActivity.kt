@@ -61,6 +61,8 @@ class DetailActivity : AppCompatActivity() {
         applyThemeAndFont()
 
         val id = intent.getStringExtra(EXTRA_CERPEN_ID) ?: run { finish(); return }
+        // v1.1.7: membuka detail = sudah melihat pembaruan — badge hilang.
+        UpdatedStore.clearCerpen(this, id)
         loading.visibility = View.VISIBLE
         Thread {
             val list = DataManager.loadCerpen(this)
