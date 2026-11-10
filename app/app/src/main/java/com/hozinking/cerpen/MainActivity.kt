@@ -610,7 +610,9 @@ class MainActivity : AppCompatActivity() {
         val forceUrl = updatePrefs.getString("force_apk_url", null)
         if (forceTag != null && UpdateCheck.compareVersions(forceTag, installed) > 0) {
             val release = UpdateCheck.ReleaseInfo(
-                forceTag, forceTag.removePrefix("v").removePrefix("V"), forceUrl
+                forceTag, forceTag.removePrefix("v").removePrefix("V"), forceUrl,
+                updatePrefs.getLong("force_apk_size", 0),
+                updatePrefs.getString("force_apk_digest", null)
             )
             showUpdateDialog(UpdateCheck.Decision.Force(release))
             return
@@ -639,6 +641,8 @@ class MainActivity : AppCompatActivity() {
                         updatePrefs.edit()
                             .putString("force_tag", decision.release.tag)
                             .putString("force_apk_url", decision.release.apkUrl)
+                            .putLong("force_apk_size", decision.release.apkSize)
+                            .putString("force_apk_digest", decision.release.apkDigest)
                             .apply()
                         showUpdateDialog(decision)
                     }
@@ -702,7 +706,7 @@ class MainActivity : AppCompatActivity() {
         if (url.isNullOrEmpty()) {
             // API tidak menemukan aset .apk — fallback browser.
             Toast.makeText(this, "Link APK tidak ditemukan — dibuka lewat browser", Toast.LENGTH_LONG).show()
-            AppUpdate.openInBrowser(this, null)
+            AppUpdate.openInBrowser(this)
             return
         }
         updateDownloadCancelled = false
@@ -745,13 +749,21 @@ class MainActivity : AppCompatActivity() {
                     installDownloadedApk(release, file)
                 } else if (!updateDownloadCancelled) {
                     Toast.makeText(this, "Unduh gagal — dibuka lewat browser", Toast.LENGTH_LONG).show()
-                    AppUpdate.openInBrowser(this, url)
+                    AppUpdate.openInBrowser(this)
                 }
             }
         }.start()
     }
 
-    /** Instal APK terunduh; bila belum diizinkan, arahkan ke Settings. */
+    /**
+     * Instal APK terunduh; bila belum diizinkan, arahkan ke Settings.
+     *
+     * APK SELALU diverifikasi dulu (ukuran + digest bila ada + package +
+     * signer cocok dengan aplikasi terpasang) di thread background —
+     * termasuk APK lama dari cache, yang tidak pernah dipasang hanya
+     * karena nama/tag cocok. Gagal verifikasi = file dihapus, installer
+     * TIDAK dipanggil, pengguna diarahkan ke halaman rilis resmi.
+     */
     private fun installDownloadedApk(release: UpdateCheck.ReleaseInfo, apk: File) {
         if (!AppUpdate.canInstall(this)) {
             updatePrefs.edit().putString("pending_install_tag", release.tag).apply()
@@ -764,10 +776,29 @@ class MainActivity : AppCompatActivity() {
             return
         }
         updatePrefs.edit().remove("pending_install_tag").apply()
-        if (!AppUpdate.installApk(this, apk)) {
-            Toast.makeText(this, "Tidak bisa membuka installer — dibuka lewat browser", Toast.LENGTH_LONG).show()
-            AppUpdate.openInBrowser(this, release.apkUrl)
-        }
+        Thread {
+            val result = AppUpdate.verifyApk(this, apk, release.apkDigest, release.apkSize)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (!ApkUpdateVerification.installationAllowed(result)) {
+                    try {
+                        apk.delete()
+                    } catch (ignored: Exception) {
+                    }
+                    Toast.makeText(
+                        this,
+                        "Update tidak bisa diverifikasi — file dihapus. Coba lagi atau unduh dari halaman rilis resmi.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    AppUpdate.openInBrowser(this)
+                    return@runOnUiThread
+                }
+                if (!AppUpdate.installApk(this, apk)) {
+                    Toast.makeText(this, "Tidak bisa membuka installer — dibuka lewat browser", Toast.LENGTH_LONG).show()
+                    AppUpdate.openInBrowser(this)
+                }
+            }
+        }.start()
     }
 
     /**
