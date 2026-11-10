@@ -197,4 +197,64 @@ class UpdateCheckTest {
         assertNull(UpdateCheck.pickApkAsset(null))
         assertNull(UpdateCheck.pickApkAsset(JSONArray()))
     }
+
+    @Test
+    fun `parse rilis terbaru membawa ukuran dan digest aset`() {
+        val digest = "sha256:" + "ab".repeat(32)
+        val json = JSONObject().apply {
+            put("tag_name", "v1.1.6")
+            put("assets", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("name", "CerpenHozin-v1.1.6.apk")
+                    put("browser_download_url", "https://example.com/CerpenHozin-v1.1.6.apk")
+                    put("size", 30123456)
+                    put("digest", digest)
+                })
+            })
+        }.toString()
+        val r = UpdateCheck.parseLatestRelease(json)
+        assertEquals("https://example.com/CerpenHozin-v1.1.6.apk", r?.apkUrl)
+        assertEquals(30123456L, r?.apkSize)
+        assertEquals(digest, r?.apkDigest)
+    }
+
+    @Test
+    fun `aset tanpa digest menghasilkan apkDigest null`() {
+        val json = JSONObject().apply {
+            put("tag_name", "v1.1.6")
+            put("assets", JSONArray().apply {
+                put(JSONObject().apply {
+                    put("name", "CerpenHozin-v1.1.6.apk")
+                    put("browser_download_url", "https://example.com/CerpenHozin-v1.1.6.apk")
+                    put("size", 12345)
+                })
+            })
+        }.toString()
+        val r = UpdateCheck.parseLatestRelease(json)
+        assertEquals(12345L, r?.apkSize)
+        assertNull(r?.apkDigest)
+    }
+
+    @Test
+    fun `pickApkAssetInfo memilih CerpenHozin beserta ukuran dan digest`() {
+        val assets = JSONArray().apply {
+            put(JSONObject().apply {
+                put("name", "besar.apk")
+                put("browser_download_url", "https://example.com/besar.apk")
+                put("size", 99999)
+                put("digest", "sha256:" + "cd".repeat(32))
+            })
+            put(JSONObject().apply {
+                put("name", "CerpenHozin-v1.1.6.apk")
+                put("browser_download_url", "https://example.com/CerpenHozin-v1.1.6.apk")
+                put("size", 12345)
+                put("digest", "sha256:" + "ab".repeat(32))
+            })
+        }
+        val picked = UpdateCheck.pickApkAssetInfo(assets)
+        assertEquals("https://example.com/CerpenHozin-v1.1.6.apk", picked?.url)
+        assertEquals(12345L, picked?.size)
+        assertEquals("sha256:" + "ab".repeat(32), picked?.digest)
+        assertNull(UpdateCheck.pickApkAssetInfo(null))
+    }
 }

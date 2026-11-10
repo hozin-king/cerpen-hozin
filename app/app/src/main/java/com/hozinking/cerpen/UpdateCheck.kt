@@ -32,7 +32,18 @@ object UpdateCheck {
     const val FORCE_AFTER_BEHIND = 3
 
     /** Info satu rilis dari API GitHub. */
-    data class ReleaseInfo(val tag: String, val version: String, val apkUrl: String?)
+    data class ReleaseInfo(
+        val tag: String,
+        val version: String,
+        val apkUrl: String?,
+        /** Ukuran aset APK (byte) dari API; 0 = tidak diketahui. */
+        val apkSize: Long = 0,
+        /** Digest aset dari API ("sha256:<64 hex>"); null = tidak disediakan. */
+        val apkDigest: String? = null
+    )
+
+    /** Satu aset APK dari `assets[]`: URL + ukuran + digest (bila ada). */
+    data class ApkAsset(val url: String, val size: Long, val digest: String?)
 
     /** Hasil keputusan cek update (logika murni, bisa dites tanpa Android). */
     sealed class Decision {
@@ -91,13 +102,13 @@ object UpdateCheck {
     }
 
     /**
-     * Pilih URL unduh APK dari `assets[]` satu rilis: utamakan .apk yang
+     * Pilih aset APK dari `assets[]` satu rilis: utamakan .apk yang
      * namanya mengandung "CerpenHozin" (nama aset rilis CI), fallback
      * .apk pertama/terbesar. Null bila tidak ada aset .apk.
      */
-    fun pickApkAsset(assets: JSONArray?): String? {
+    fun pickApkAssetInfo(assets: JSONArray?): ApkAsset? {
         if (assets == null) return null
-        var fallbackUrl: String? = null
+        var fallback: ApkAsset? = null
         var fallbackSize = -1L
         for (i in 0 until assets.length()) {
             val a = assets.optJSONObject(i) ?: continue
@@ -106,16 +117,21 @@ object UpdateCheck {
             val url = a.optString("browser_download_url", "")
             if (url.isEmpty()) continue
             val size = a.optLong("size", 0)
+            val digest = a.optString("digest", "").ifEmpty { null }
+            val asset = ApkAsset(url, size, digest)
             if (name.contains("CerpenHozin", ignoreCase = true)) {
-                return url
+                return asset
             }
             if (size > fallbackSize) {
                 fallbackSize = size
-                fallbackUrl = url
+                fallback = asset
             }
         }
-        return fallbackUrl
+        return fallback
     }
+
+    /** Kompatibilitas: hanya URL unduh APK (lihat [pickApkAssetInfo]). */
+    fun pickApkAsset(assets: JSONArray?): String? = pickApkAssetInfo(assets)?.url
 
     /** Parse JSON satu rilis (endpoint /releases/latest). Null bila tag invalid. */
     fun parseLatestRelease(jsonText: String): ReleaseInfo? {
@@ -124,7 +140,8 @@ object UpdateCheck {
             val tag = obj.optString("tag_name", "")
             if (parseVersion(tag) == null) return null
             val version = tag.trim().removePrefix("v").removePrefix("V")
-            ReleaseInfo(tag, version, pickApkAsset(obj.optJSONArray("assets")))
+            val asset = pickApkAssetInfo(obj.optJSONArray("assets"))
+            ReleaseInfo(tag, version, asset?.url, asset?.size ?: 0, asset?.digest)
         } catch (e: Exception) {
             null
         }
