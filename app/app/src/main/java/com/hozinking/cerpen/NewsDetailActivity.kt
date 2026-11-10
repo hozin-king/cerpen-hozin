@@ -1,18 +1,25 @@
 package com.hozinking.cerpen
 
+import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.View
-import android.widget.HorizontalScrollView
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
- * Pembaca artikel berita lengkap (v1.1): galeri gambar horizontal + isi
- * penuh tanpa pemotongan. Kompatibel dengan data lama (1 gambar + summary):
- * galeri memakai `images`, fallback ke `image`; isi memakai `details`,
- * fallback ke `summary`.
+ * Pembaca artikel berita lengkap (v1.1): isi penuh tanpa pemotongan.
+ *
+ * v1.1.5: galeri header DIHAPUS — gambar tampil INLINE di dalam alur
+ * teks (disebar merata antar paragraf, lihat NewsBodyLayout), karena
+ * data berita TIDAK menyimpan posisi gambar di artikel asli. Gambar
+ * dimuat asinkron (decode tidak di UI thread). Tombol Unduh mengunduh
+ * gambar artikel ini (dari bundel repo atau URL asli yang dienkripsi
+ * lokal). Membuka detail otomatis mengunduh gambar yang belum ada
+ * supaya gambar langsung tampil di alur teks.
  */
 class NewsDetailActivity : AppCompatActivity() {
 
@@ -23,14 +30,19 @@ class NewsDetailActivity : AppCompatActivity() {
         const val EXTRA_SUMMARY = "news_summary"
         const val EXTRA_DETAILS = "news_details"
         const val EXTRA_IMAGES = "news_images"
+        const val EXTRA_IMAGE_URLS = "news_image_urls"
+        const val EXTRA_ADDED_AT = "news_added_at"
     }
 
     private lateinit var root: View
-    private lateinit var galleryScroll: HorizontalScrollView
-    private lateinit var gallery: LinearLayout
+    private lateinit var bodyContainer: LinearLayout
     private lateinit var titleText: TextView
     private lateinit var metaText: TextView
-    private lateinit var bodyText: TextView
+    private lateinit var downloadButton: Button
+
+    private var article: NewsArticle? = null
+    private var downloading = false
+    private var lastTheme = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,11 +50,10 @@ class NewsDetailActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         root = findViewById(R.id.news_detail_root)
-        galleryScroll = findViewById(R.id.news_gallery_scroll)
-        gallery = findViewById(R.id.news_gallery)
+        bodyContainer = findViewById(R.id.news_body_container)
         titleText = findViewById(R.id.news_title)
         metaText = findViewById(R.id.news_meta)
-        bodyText = findViewById(R.id.news_body)
+        downloadButton = findViewById(R.id.news_download_button)
 
         val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
         val source = intent.getStringExtra(EXTRA_SOURCE) ?: ""
@@ -50,46 +61,139 @@ class NewsDetailActivity : AppCompatActivity() {
         val summary = intent.getStringExtra(EXTRA_SUMMARY) ?: ""
         val details = intent.getStringExtra(EXTRA_DETAILS) ?: ""
         val images = intent.getStringArrayListExtra(EXTRA_IMAGES) ?: arrayListOf()
+        val imageUrls = intent.getStringArrayListExtra(EXTRA_IMAGE_URLS) ?: arrayListOf()
+        val addedAt = intent.getStringExtra(EXTRA_ADDED_AT) ?: ""
+        article = NewsArticle(
+            title = title, summary = summary, source = source, date = date,
+            image = images.firstOrNull(), images = images, details = details,
+            imageUrls = imageUrls, addedAt = addedAt
+        )
 
         supportActionBar?.title = if (title.length > 28) title.take(28) + "…" else title
         titleText.text = title
-        metaText.text = listOf(source, date).filter { it.isNotEmpty() }.joinToString(" · ")
-        // Isi lengkap tanpa maxLines/pemotongan; fallback ke ringkasan.
-        bodyText.text = if (details.isNotBlank()) details else summary
+        val dateLabel = if (date.isNotEmpty()) ItemDates.format(date) else ""
+        metaText.text = listOf(source, dateLabel).filter { it.isNotEmpty() }.joinToString(" · ")
 
-        buildGallery(images)
+        downloadButton.setOnClickListener { startDownload() }
         applyThemeAndFont()
+        lastTheme = ProgressStore.getTheme(this)
+        // Teks dulu (placeholder untuk gambar), gambar menyusul asinkron.
+        buildBody(null)
+        loadImages()
+        // Unduh otomatis gambar yang belum ada — artikel dibuka untuk dibaca.
+        refreshDownloadButton()
+        if (article?.let { !DataManager.isNewsOffline(this, it) } == true) {
+            startDownload()
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        val theme = ProgressStore.getTheme(this)
         applyThemeAndFont()
+        // Rebuild isi hanya bila tema berubah (warna teks ikut palet).
+        if (theme != lastTheme) {
+            lastTheme = theme
+            buildBody(null)
+            loadImages()
+        }
+        refreshDownloadButton()
     }
 
-    private fun buildGallery(images: List<String>) {
-        gallery.removeAllViews()
-        if (images.isEmpty()) {
-            galleryScroll.visibility = View.GONE
-            return
-        }
-        galleryScroll.visibility = View.VISIBLE
-        val density = resources.displayMetrics.density
-        for (path in images) {
-            val bmp = CoverCache.get(this, "news/$path", 800)
+    /** Muat bitmap gambar artikel di thread latar, lalu bangun ulang isi. */
+    private fun loadImages() {
+        val a = article ?: return
+        if (a.images.isEmpty()) return
+        Thread {
+            val bitmaps: List<Bitmap?> = a.images.map { path ->
+                if (path.isNotEmpty()) CoverCache.get(this, "news/$path", 800) else null
+            }
+            runOnUiThread { buildBody(bitmaps) }
+        }.start()
+    }
+
+    /**
+     * Bangun isi: blok paragraf teks + gambar inline yang disebar
+     * merata di antaranya. [bitmaps] null = semua gambar masih
+     * placeholder (dipakai sebelum loadImages selesai).
+     */
+    private fun buildBody(bitmaps: List<Bitmap?>?) {
+        val a = article ?: return
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val textSize = ProgressStore.getTextSizeSp(this)
+        val d = resources.displayMetrics.density
+        bodyContainer.removeAllViews()
+        val bodyText = if (a.details.isNotBlank()) a.details else a.summary
+        val blocks = bodyText.split("\n\n").filter { it.isNotBlank() }
+        val positions = NewsBodyLayout.insertAfter(blocks.size, a.images.size)
+
+        fun addImage(idx: Int) {
             val iv = ImageView(this)
             val params = LinearLayout.LayoutParams(
-                (240 * density).toInt(),
-                (160 * density).toInt()
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            params.marginEnd = (8 * density).toInt()
+            params.topMargin = (12 * d).toInt()
+            params.bottomMargin = (12 * d).toInt()
             iv.layoutParams = params
-            iv.scaleType = ImageView.ScaleType.CENTER_CROP
-            if (bmp != null) {
-                iv.setImageBitmap(bmp)
-            } else {
-                iv.setImageResource(R.drawable.news_placeholder)
+            iv.adjustViewBounds = true
+            iv.scaleType = ImageView.ScaleType.FIT_CENTER
+            iv.contentDescription = "Gambar artikel ${idx + 1}"
+            val bmp = bitmaps?.getOrNull(idx)
+            if (bmp != null) iv.setImageBitmap(bmp)
+            else iv.setImageResource(R.drawable.news_placeholder)
+            bodyContainer.addView(iv)
+        }
+
+        if (blocks.isEmpty()) {
+            for (i in a.images.indices) addImage(i)
+            return
+        }
+        for ((blockIdx, block) in blocks.withIndex()) {
+            val tv = TextView(this)
+            tv.layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            tv.text = block
+            tv.setTextColor(palette.ink)
+            tv.textSize = textSize
+            tv.setLineSpacing(0f, 1.6f)
+            bodyContainer.addView(tv)
+            positions.forEachIndexed { imgIdx, afterIdx ->
+                if (afterIdx == blockIdx) addImage(imgIdx)
             }
-            gallery.addView(iv)
+        }
+    }
+
+    private fun refreshDownloadButton() {
+        val a = article ?: return
+        val offline = DataManager.isNewsOffline(this, a)
+        downloadButton.visibility =
+            if (a.images.isEmpty() || offline || downloading) View.GONE else View.VISIBLE
+        if (!downloading) downloadButton.text = "⬇ Unduh gambar untuk Offline"
+    }
+
+    private fun startDownload() {
+        val a = article ?: return
+        if (downloading) return
+        downloading = true
+        downloadButton.visibility = View.VISIBLE
+        downloadButton.isEnabled = false
+        downloadButton.text = "Mengunduh…"
+        DataManager.downloadNewsItem(this, a, onProgress = { done, total, _ ->
+            downloadButton.text = "Mengunduh $done/$total…"
+        }) { result ->
+            downloading = false
+            downloadButton.isEnabled = true
+            refreshDownloadButton()
+            loadImages()
+            Toast.makeText(
+                this,
+                if (result.failed == 0) "Gambar tersimpan offline"
+                else "${result.downloaded} gambar diunduh, ${result.failed} gagal — coba lagi saat sinyal bagus",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -99,8 +203,6 @@ class NewsDetailActivity : AppCompatActivity() {
         root.setBackgroundColor(palette.bg)
         titleText.setTextColor(palette.titleInk)
         metaText.setTextColor(palette.muted)
-        bodyText.setTextColor(palette.ink)
-        bodyText.textSize = ProgressStore.getTextSizeSp(this)
     }
 
     override fun onSupportNavigateUp(): Boolean {

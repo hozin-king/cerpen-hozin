@@ -1,12 +1,14 @@
 package com.hozinking.cerpen
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -27,8 +29,13 @@ class KomikDetailActivity : AppCompatActivity() {
     private lateinit var settingsButton: Button
     private lateinit var episodeList: RecyclerView
     private lateinit var loading: ProgressBar
+    private lateinit var downloadButton: Button
+    private lateinit var offlineIcon: ImageView
+    private lateinit var offlineLabel: TextView
 
     private var komik: Komik? = null
+    private var downloading = false
+    private val downloadingEpisodes = HashSet<Int>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,6 +51,9 @@ class KomikDetailActivity : AppCompatActivity() {
         settingsButton = findViewById(R.id.detail_settings_button)
         episodeList = findViewById(R.id.episode_list)
         loading = findViewById(R.id.loading)
+        downloadButton = findViewById(R.id.detail_download_button)
+        offlineIcon = findViewById(R.id.detail_offline_icon)
+        offlineLabel = findViewById(R.id.detail_offline_label)
 
         episodeList.layoutManager = LinearLayoutManager(this)
         settingsButton.setOnClickListener {
@@ -73,7 +83,8 @@ class KomikDetailActivity : AppCompatActivity() {
         super.onResume()
         applyThemeAndFont()
         komik?.let {
-            episodeList.adapter = KomikEpisodeAdapter(it, { ep -> openReader(it.id, ep.no) }, ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this))
+            episodeList.adapter = episodeAdapter(it)
+            refreshDownloadState()
         }
     }
 
@@ -95,15 +106,77 @@ class KomikDetailActivity : AppCompatActivity() {
         genre.text = k.genre
         meta.text = "${k.totalEpisodes} episode · ${k.totalPanels} panel"
         deskripsi.text = k.deskripsi
-        val bmp = if (k.cover.isNotEmpty()) {
-            CoverCache.get(this, "komik/covers/${k.cover}", 600)
-        } else null
-        if (bmp != null) {
-            cover.setImageBitmap(bmp)
+        // v1.1.5: cover dimuat asinkron (decode tidak di UI thread).
+        if (k.cover.isNotEmpty()) {
+            CoverCache.loadInto(this, "komik/covers/${k.cover}", 600, cover, R.drawable.cover_placeholder)
         } else {
-            cover.setImageResource(R.drawable.cover_placeholder)
+            CoverCache.clear(cover, R.drawable.cover_placeholder)
         }
-        episodeList.adapter = KomikEpisodeAdapter(k, { ep -> openReader(k.id, ep.no) }, ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this))
+        episodeList.adapter = episodeAdapter(k)
+        refreshDownloadState()
+        downloadButton.setOnClickListener { downloadWholeKomik() }
+    }
+
+    private fun episodeAdapter(k: Komik): KomikEpisodeAdapter =
+        KomikEpisodeAdapter(
+            k, { ep -> openReader(k.id, ep.no) },
+            ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this),
+            onDownload = { ep, pos -> downloadEpisode(k, ep, pos) }
+        )
+
+    /** v1.1.5: tombol Unduh seluruh komik vs ikon sudah-offline. */
+    private fun refreshDownloadState() {
+        val k = komik ?: return
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val offline = DataManager.isKomikOffline(this, k)
+        downloadButton.visibility = if (offline || downloading) View.GONE else View.VISIBLE
+        if (!downloading) downloadButton.text = "⬇ Unduh untuk Offline"
+        offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        offlineLabel.visibility = if (offline) View.VISIBLE else View.GONE
+    }
+
+    private fun downloadWholeKomik() {
+        val k = komik ?: return
+        if (downloading) return
+        downloading = true
+        downloadButton.visibility = View.VISIBLE
+        downloadButton.isEnabled = false
+        downloadButton.text = "Mengunduh…"
+        DataManager.downloadKomik(this, k, onProgress = { done, total, _ ->
+            downloadButton.text = "Mengunduh $done/$total…"
+        }) { result ->
+            downloading = false
+            downloadButton.isEnabled = true
+            refreshDownloadState()
+            episodeList.adapter = episodeAdapter(k)
+            Toast.makeText(
+                this,
+                if (result.failed == 0) "Komik tersimpan offline (${result.downloaded} panel baru)"
+                else "${result.downloaded} panel diunduh, ${result.failed} gagal — coba lagi saat sinyal bagus",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    /** v1.1.5: unduh satu episode dari baris daftar episode. */
+    private fun downloadEpisode(k: Komik, episode: KomikEpisode, pos: Int) {
+        if (!downloadingEpisodes.add(episode.no)) return
+        DataManager.downloadKomikEpisode(this, k, episode, onProgress = { done, total, _ ->
+            val vh = episodeList.findViewHolderForAdapterPosition(pos) as? DownloadRow ?: return@downloadKomikEpisode
+            vh.downloadButton.text = "Mengunduh $done/$total…"
+            vh.downloadButton.isEnabled = false
+        }) { result ->
+            downloadingEpisodes.remove(episode.no)
+            episodeList.adapter?.notifyItemChanged(pos)
+            refreshDownloadState()
+            Toast.makeText(
+                this,
+                if (result.failed == 0) "Episode tersimpan offline"
+                else "Gagal mengunduh — periksa internet lalu coba lagi",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun openReader(komikId: String, episode: Int) {

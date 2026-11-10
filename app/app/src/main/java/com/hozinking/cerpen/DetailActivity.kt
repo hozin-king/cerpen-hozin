@@ -1,12 +1,14 @@
 package com.hozinking.cerpen
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -26,8 +28,12 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var settingsButton: Button
     private lateinit var episodeList: RecyclerView
     private lateinit var loading: ProgressBar
+    private lateinit var downloadButton: Button
+    private lateinit var offlineIcon: ImageView
+    private lateinit var offlineLabel: TextView
 
     private var cerpen: Cerpen? = null
+    private var downloading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +49,9 @@ class DetailActivity : AppCompatActivity() {
         settingsButton = findViewById(R.id.detail_settings_button)
         episodeList = findViewById(R.id.episode_list)
         loading = findViewById(R.id.loading)
+        downloadButton = findViewById(R.id.detail_download_button)
+        offlineIcon = findViewById(R.id.detail_offline_icon)
+        offlineLabel = findViewById(R.id.detail_offline_label)
 
         episodeList.layoutManager = LinearLayoutManager(this)
         settingsButton.setOnClickListener {
@@ -97,15 +106,48 @@ class DetailActivity : AppCompatActivity() {
         genre.text = c.genre
         meta.text = "${c.totalEpisodes} episode · ${c.seasons.size} season"
         deskripsi.text = c.deskripsi
-        val bmp = if (c.cover.isNotEmpty()) {
-            CoverCache.get(this, "covers/${c.cover}", 600)
-        } else null
-        if (bmp != null) {
-            cover.setImageBitmap(bmp)
+        // v1.1.5: cover dimuat asinkron (decode tidak di UI thread).
+        if (c.cover.isNotEmpty()) {
+            CoverCache.loadInto(this, "covers/${c.cover}", 600, cover, R.drawable.cover_placeholder)
         } else {
-            cover.setImageResource(R.drawable.cover_placeholder)
+            CoverCache.clear(cover, R.drawable.cover_placeholder)
         }
         episodeList.adapter = EpisodeAdapter(c, { season, ep -> openReader(c.id, season, ep.no) }, ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this))
+        refreshDownloadState()
+        downloadButton.setOnClickListener { downloadCover() }
+    }
+
+    /** v1.1.5: tombol Unduh cover vs ikon sudah-offline. */
+    private fun refreshDownloadState() {
+        val c = cerpen ?: return
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val offline = DataManager.isCerpenOffline(this, c)
+        downloadButton.visibility = if (offline || downloading) View.GONE else View.VISIBLE
+        if (!downloading) downloadButton.text = "⬇ Unduh untuk Offline"
+        offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        offlineLabel.visibility = if (offline) View.VISIBLE else View.GONE
+    }
+
+    private fun downloadCover() {
+        val c = cerpen ?: return
+        if (downloading) return
+        downloading = true
+        downloadButton.visibility = View.VISIBLE
+        downloadButton.isEnabled = false
+        downloadButton.text = "Mengunduh…"
+        DataManager.downloadCerpen(this, c, onProgress = { done, total, _ ->
+            downloadButton.text = "Mengunduh $done/$total…"
+        }) { result ->
+            downloading = false
+            downloadButton.isEnabled = true
+            refreshDownloadState()
+            Toast.makeText(
+                this,
+                if (result.failed == 0) "Cover tersimpan offline" else "Gagal mengunduh — periksa internet lalu coba lagi",
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun openReader(cerpenId: String, season: Int, episode: Int) {

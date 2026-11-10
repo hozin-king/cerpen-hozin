@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Pembaca artikel berita lengkap (v1.1): galeri gambar horizontal di atas,
-     lalu judul + sumber/tanggal + isi LENGKAP tanpa pemotongan. -->
+<!-- v1.1.5: galeri header DIHAPUS — gambar kini tampil inline di
+     dalam alur teks (disebar merata antar paragraf). Tombol unduh
+     per artikel di atas isi. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/news_detail_root"
     android:layout_width="match_parent"
@@ -8,24 +9,22 @@
     android:background="@color/paper"
     android:orientation="vertical">
 
-    <!-- Galeri gambar (disembunyikan bila artikel tanpa gambar). -->
-    <HorizontalScrollView
-        android:id="@+id/news_gallery_scroll"
-        android:layout_width="match_parent"
+    <Button
+        android:id="@+id/news_download_button"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:paddingTop="16dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="16dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
         android:paddingBottom="8dp"
-        android:scrollbars="none"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:id="@+id/news_gallery"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp" />
-    </HorizontalScrollView>
+        android:text="⬇ Unduh gambar untuk Offline"
+        android:textColor="@color/white"
+        android:textSize="13sp"
+        android:visibility="gone" />
 
     <ScrollView
         android:id="@+id/news_detail_scroll"
@@ -55,14 +54,14 @@
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
 
-            <TextView
-                android:id="@+id/news_body"
+            <!-- Isi artikel: paragraf teks + gambar inline (dibangun
+                 dari kode di NewsDetailActivity). -->
+            <LinearLayout
+                android:id="@+id/news_body_container"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:textColor="@color/ink"
-                android:textSize="17sp"
-                android:lineSpacingMultiplier="1.6" />
+                android:orientation="vertical" />
         </LinearLayout>
     </ScrollView>
 

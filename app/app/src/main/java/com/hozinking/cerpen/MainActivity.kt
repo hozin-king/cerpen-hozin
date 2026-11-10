@@ -1,9 +1,11 @@
 package com.hozinking.cerpen
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
+import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -11,10 +13,12 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
@@ -62,7 +66,27 @@ class MainActivity : AppCompatActivity() {
     private var query: String = ""
     private var selectedGenre: String = "Semua"
     private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik
+    /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
+    private var newestCerpenId: String? = null
+    private var newestKomikId: String? = null
+    /** Kunci unduh yang sedang berjalan — cegah ketuk ganda. */
+    private val downloadingKeys = HashSet<String>()
 
+    // ============ AUTO-UPDATE APLIKASI (v1.1.5) ============
+    // Cek rilis GitHub terbaru; dialog HANYA untuk update kode aplikasi —
+    // konten tetap di-sync DataManager tanpa update APK.
+    private val updatePrefs by lazy { getSharedPreferences("update_check", MODE_PRIVATE) }
+    private var updateDialog: AlertDialog? = null
+    private var updateProgressDialog: AlertDialog? = null
+    private var updateDownloadCancelled = false
+
+    // v1.1.5: InvalidSetHasFixedSize di-suppress — false positive dari
+    // detector lint (file-scoped): history_list/bookmark_list memang
+    // wrap_content BY DESIGN (daftar pendek, expand penuh di ScrollView,
+    // nested scrolling mati), dan keberadaannya membuat SEMUA
+    // setHasFixedSize() di file ini ditandai. cerpen/news/komik_list
+    // tingginya TETAP (480/560/480dp), jadi setHasFixedSize(true) valid.
+    @SuppressLint("InvalidSetHasFixedSize")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -115,6 +139,11 @@ class MainActivity : AppCompatActivity() {
         newsList.layoutManager = LinearLayoutManager(this)
         komikList.layoutManager = LinearLayoutManager(this)
 
+        // v1.1.5: ukuran tetap agar recycling aktif (daftar 916 berita).
+        cerpenList.setHasFixedSize(true)
+        newsList.setHasFixedSize(true)
+        komikList.setHasFixedSize(true)
+
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -137,6 +166,7 @@ class MainActivity : AppCompatActivity() {
         showTab(selectedTab)
         loadContent()
         // Sync HANYA manual (tombol Perbarui) — hemat baterai, tanpa proses background.
+        checkForAppUpdate()
     }
 
     override fun onResume() {
@@ -144,6 +174,8 @@ class MainActivity : AppCompatActivity() {
         applyThemeAndFont()
         showContinueReading()
         showHistoryAndBookmarks()
+        showPendingInstallIfReady()
+        checkForAppUpdate()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
         }
@@ -210,6 +242,11 @@ class MainActivity : AppCompatActivity() {
             NewsDetailActivity.EXTRA_IMAGES,
             ArrayList(article.images)
         )
+        i.putStringArrayListExtra(
+            NewsDetailActivity.EXTRA_IMAGE_URLS,
+            ArrayList(article.imageUrls)
+        )
+        i.putExtra(NewsDetailActivity.EXTRA_ADDED_AT, article.addedAt)
         startActivity(i)
     }
 
@@ -220,16 +257,23 @@ class MainActivity : AppCompatActivity() {
             val news = DataManager.loadNews(this)
             val komik = DataManager.loadKomik(this)
             runOnUiThread {
-                cerpenData = cerpen
-                newsData = news
-                komikData = komik
+                // v1.1.5: semua daftar urut terbaru dulu. Berita: addedAt
+                // (ISO) menurun; cerpen/komik: nomor id menurun.
+                cerpenData = cerpen.sortedByDescending { ItemDates.trailingNumber(it.id) }
+                newsData = news.sortedByDescending { it.addedAt.ifEmpty { it.date } }
+                komikData = komik.sortedByDescending { ItemDates.trailingNumber(it.id) }
+                newestCerpenId = cerpenData.firstOrNull()?.id
+                newestKomikId = komikData.firstOrNull()?.id
                 loading.visibility = View.GONE
                 buildGenreChips()
                 applyCerpenFilter()
                 applyKomikList()
                 val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
                 val scale = ThemeHelper.fontScale(this)
-                newsList.adapter = NewsAdapter(news, { openNewsDetail(it) }, palette, scale)
+                newsList.adapter = NewsAdapter(
+                    newsData, { openNewsDetail(it) }, palette, scale,
+                    onDownload = { a, pos -> downloadNews(a, pos) }
+                )
                 showContinueReading()
                 showHistoryAndBookmarks()
             }
@@ -239,7 +283,11 @@ class MainActivity : AppCompatActivity() {
     private fun applyKomikList() {
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
-        komikList.adapter = KomikAdapter(komikData, { openKomikDetail(it) }, palette, scale)
+        komikList.adapter = KomikAdapter(
+            komikData, { openKomikDetail(it) }, palette, scale,
+            onDownload = { k, pos -> downloadKomik(k, pos) },
+            newestId = newestKomikId
+        )
     }
 
     private fun openKomikDetail(komik: Komik) {
@@ -299,7 +347,11 @@ class MainActivity : AppCompatActivity() {
         }
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
-        cerpenList.adapter = CerpenAdapter(filtered, { openDetail(it) }, palette, scale)
+        cerpenList.adapter = CerpenAdapter(
+            filtered, { openDetail(it) }, palette, scale,
+            onDownload = { c, pos -> downloadCerpen(c, pos) },
+            newestId = newestCerpenId
+        )
     }
 
     private fun showContinueReading() {
@@ -365,6 +417,67 @@ class MainActivity : AppCompatActivity() {
         i.putExtra(ReaderActivity.EXTRA_SEASON, season)
         i.putExtra(ReaderActivity.EXTRA_EPISODE, episode)
         startActivity(i)
+    }
+
+    // ============ UNDUH PER KONTEN (v1.1.5) ============
+    // Progres tampil di tombol baris itu ("Mengunduh 3/10…"); selesai
+    // -> baris di-refresh (tombol jadi ikon unduh) + toast ringkasan.
+
+    /** Update tombol Unduh baris yang sedang terlihat. */
+    private fun setRowDownloading(list: RecyclerView, pos: Int, text: String) {
+        val vh = list.findViewHolderForAdapterPosition(pos) as? DownloadRow ?: return
+        vh.downloadButton.text = text
+        vh.downloadButton.isEnabled = false
+    }
+
+    /** Refresh satu baris setelah unduh selesai (ikon/badge dihitung ulang). */
+    private fun refreshRow(list: RecyclerView, pos: Int) {
+        list.adapter?.notifyItemChanged(pos)
+    }
+
+    private fun downloadCerpen(c: Cerpen, pos: Int) {
+        if (!downloadingKeys.add("cerpen:${c.id}")) return
+        DataManager.downloadCerpen(this, c, onProgress = { done, total, _ ->
+            setRowDownloading(cerpenList, pos, "Mengunduh $done/$total…")
+        }) { result ->
+            downloadingKeys.remove("cerpen:${c.id}")
+            refreshRow(cerpenList, pos)
+            Toast.makeText(this, downloadToast(result, "Cover"), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun downloadNews(a: NewsArticle, pos: Int) {
+        if (!downloadingKeys.add("news:${a.title}")) return
+        DataManager.downloadNewsItem(this, a, onProgress = { done, total, _ ->
+            setRowDownloading(newsList, pos, "Mengunduh $done/$total…")
+        }) { result ->
+            downloadingKeys.remove("news:${a.title}")
+            refreshRow(newsList, pos)
+            Toast.makeText(this, downloadToast(result, "Gambar"), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun downloadKomik(k: Komik, pos: Int) {
+        if (!downloadingKeys.add("komik:${k.id}")) return
+        DataManager.downloadKomik(this, k, onProgress = { done, total, _ ->
+            setRowDownloading(komikList, pos, "Mengunduh $done/$total…")
+        }) { result ->
+            downloadingKeys.remove("komik:${k.id}")
+            refreshRow(komikList, pos)
+            Toast.makeText(this, downloadToast(result, "Panel"), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun downloadToast(result: SyncResult, what: String): String {
+        return if (result.downloaded == 0 && result.failed == 0) {
+            "Sudah tersimpan offline"
+        } else if (result.failed == 0) {
+            "$what tersimpan offline (${result.downloaded} baru)"
+        } else if (result.downloaded == 0) {
+            "Gagal mengunduh — periksa internet lalu coba lagi"
+        } else {
+            "${result.downloaded} $what diunduh, ${result.failed} gagal — coba lagi saat sinyal bagus"
+        }
     }
 
     /** Matikan kedua tombol sync selama satu proses berjalan. */
@@ -449,5 +562,206 @@ class MainActivity : AppCompatActivity() {
                 ).show()
             }
         }
+    }
+
+    // ============ AUTO-UPDATE APLIKASI (v1.1.5) ============
+    // Sumber: GitHub Releases API (otomatis, tanpa file versi manual).
+    // Fail-open: cek gagal (tanpa internet / API error) = diam, aplikasi
+    // tetap jalan normal. Dialog ini HANYA update kode — konten di-sync
+    // DataManager dan bisa update tanpa update APK.
+
+    /** Cek update: onCreate + onResume, throttle maks 1x per 6 jam. */
+    private fun checkForAppUpdate() {
+        val installed = BuildConfig.VERSION_NAME
+        // Force yang tertunda (tersimpan di prefs) tampil lagi tanpa jaringan.
+        val forceTag = updatePrefs.getString("force_tag", null)
+        val forceUrl = updatePrefs.getString("force_apk_url", null)
+        if (forceTag != null && UpdateCheck.compareVersions(forceTag, installed) > 0) {
+            val release = UpdateCheck.ReleaseInfo(
+                forceTag, forceTag.removePrefix("v").removePrefix("V"), forceUrl
+            )
+            showUpdateDialog(UpdateCheck.Decision.Force(release))
+            return
+        }
+        val now = System.currentTimeMillis()
+        val last = updatePrefs.getLong("last_check_ms", 0)
+        if (now - last < 6 * 60 * 60 * 1000L) return
+        updatePrefs.edit().putLong("last_check_ms", now).apply()
+        Thread {
+            val decision = try {
+                UpdateCheck.check(installed)
+            } catch (e: Exception) {
+                UpdateCheck.Decision.None
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when (decision) {
+                    is UpdateCheck.Decision.None -> Unit
+                    is UpdateCheck.Decision.Soft -> {
+                        // Sekali ditutup untuk versi itu, jangan muncul lagi
+                        // sampai ada versi yang LEBIH baru.
+                        if (updatePrefs.getString("dismissed_tag", null) == decision.release.tag) return@runOnUiThread
+                        showUpdateDialog(decision)
+                    }
+                    is UpdateCheck.Decision.Force -> {
+                        updatePrefs.edit()
+                            .putString("force_tag", decision.release.tag)
+                            .putString("force_apk_url", decision.release.apkUrl)
+                            .apply()
+                        showUpdateDialog(decision)
+                    }
+                }
+            }
+        }.start()
+    }
+
+    /** Tampilkan dialog update (biasa atau paksa). */
+    private fun showUpdateDialog(decision: UpdateCheck.Decision) {
+        if (updateDialog?.isShowing == true) return
+        val release = when (decision) {
+            is UpdateCheck.Decision.Soft -> decision.release
+            is UpdateCheck.Decision.Force -> decision.release
+            else -> return
+        }
+        val forced = decision is UpdateCheck.Decision.Force
+        val builder = AlertDialog.Builder(this)
+            .setTitle(if (forced) "Update wajib" else "Versi baru tersedia")
+            .setMessage(
+                if (forced) {
+                    "Cerpen Hozin v${release.version} sudah tersedia dan versi kamu " +
+                        "sudah tertinggal 3 rilis. Perbarui dulu untuk lanjut memakai aplikasi."
+                } else {
+                    "Cerpen Hozin v${release.version} sudah tersedia " +
+                        "(versi kamu v${BuildConfig.VERSION_NAME}). " +
+                        "Perbarui untuk fitur terbaru dan perbaikan."
+                }
+            )
+            .setPositiveButton(if (forced) "Update Sekarang" else "Update") { _, _ ->
+                startApkDownload(release)
+            }
+            .setCancelable(!forced)
+        if (!forced) {
+            builder.setNegativeButton("Nanti") { _, _ ->
+                updatePrefs.edit().putString("dismissed_tag", release.tag).apply()
+            }
+        }
+        val dialog = builder.create()
+        if (forced) {
+            // Blokir tombol back selama dialog paksa tampil.
+            dialog.setOnKeyListener { _, keyCode, _ -> keyCode == KeyEvent.KEYCODE_BACK }
+        }
+        dialog.setOnDismissListener { updateDialog = null }
+        updateDialog = dialog
+        dialog.show()
+    }
+
+    /**
+     * Unduh APK di dalam aplikasi dengan dialog progres. Bila APK tag ini
+     * sudah terunduh, langsung instal tanpa unduh ulang.
+     */
+    private fun startApkDownload(release: UpdateCheck.ReleaseInfo) {
+        val tag = release.tag
+        val existing = AppUpdate.apkFileFor(this, tag)
+        if (existing.exists() && existing.length() > 0) {
+            installDownloadedApk(release, existing)
+            return
+        }
+        val url = release.apkUrl
+        if (url.isNullOrEmpty()) {
+            // API tidak menemukan aset .apk — fallback browser.
+            Toast.makeText(this, "Link APK tidak ditemukan — dibuka lewat browser", Toast.LENGTH_LONG).show()
+            AppUpdate.openInBrowser(this, null)
+            return
+        }
+        updateDownloadCancelled = false
+        val density = resources.displayMetrics.density
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((24 * density).toInt(), (16 * density).toInt(), (24 * density).toInt(), (8 * density).toInt())
+        }
+        val statusText = TextView(this).apply { text = "Mengunduh… 0%" }
+        val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            isIndeterminate = true
+        }
+        layout.addView(statusText)
+        layout.addView(bar)
+        val progressDialog = AlertDialog.Builder(this)
+            .setTitle("Mengunduh update v${release.version}")
+            .setView(layout)
+            .setNegativeButton("Batal") { _, _ -> updateDownloadCancelled = true }
+            .setCancelable(false)
+            .create()
+        updateProgressDialog = progressDialog
+        progressDialog.show()
+        Thread {
+            val file = AppUpdate.downloadApk(this, tag, url, onProgress = { p ->
+                runOnUiThread {
+                    if (p >= 0) {
+                        bar.isIndeterminate = false
+                        bar.progress = p
+                        statusText.text = "Mengunduh… $p%"
+                    }
+                }
+            }, isCancelled = { updateDownloadCancelled })
+            runOnUiThread {
+                updateProgressDialog?.dismiss()
+                updateProgressDialog = null
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (file != null) {
+                    installDownloadedApk(release, file)
+                } else if (!updateDownloadCancelled) {
+                    Toast.makeText(this, "Unduh gagal — dibuka lewat browser", Toast.LENGTH_LONG).show()
+                    AppUpdate.openInBrowser(this, url)
+                }
+            }
+        }.start()
+    }
+
+    /** Instal APK terunduh; bila belum diizinkan, arahkan ke Settings. */
+    private fun installDownloadedApk(release: UpdateCheck.ReleaseInfo, apk: File) {
+        if (!AppUpdate.canInstall(this)) {
+            updatePrefs.edit().putString("pending_install_tag", release.tag).apply()
+            Toast.makeText(
+                this,
+                "Izinkan 'Instal aplikasi tak dikenal' untuk Cerpen Hozin, lalu kembali ke aplikasi",
+                Toast.LENGTH_LONG
+            ).show()
+            AppUpdate.openUnknownSourcesSettings(this)
+            return
+        }
+        updatePrefs.edit().remove("pending_install_tag").apply()
+        if (!AppUpdate.installApk(this, apk)) {
+            Toast.makeText(this, "Tidak bisa membuka installer — dibuka lewat browser", Toast.LENGTH_LONG).show()
+            AppUpdate.openInBrowser(this, release.apkUrl)
+        }
+    }
+
+    /**
+     * Setelah pengguna kembali dari Settings izin instal: APK sudah
+     * terunduh, tawarkan instalasi langsung tanpa unduh ulang.
+     */
+    private fun showPendingInstallIfReady() {
+        if (updateDialog?.isShowing == true) return
+        val tag = updatePrefs.getString("pending_install_tag", null) ?: return
+        val apk = AppUpdate.apkFileFor(this, tag)
+        if (!apk.exists() || apk.length() == 0L) {
+            updatePrefs.edit().remove("pending_install_tag").apply()
+            return
+        }
+        val release = UpdateCheck.ReleaseInfo(tag, tag.removePrefix("v").removePrefix("V"), null)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Update sudah terunduh")
+            .setMessage("APK Cerpen Hozin ${release.version} sudah terunduh. Instal sekarang?")
+            .setPositiveButton("Instal Sekarang") { _, _ -> installDownloadedApk(release, apk) }
+            .setNegativeButton("Nanti") { _, _ ->
+                updatePrefs.edit().remove("pending_install_tag").apply()
+            }
+            .setCancelable(true)
+            .create()
+        dialog.setOnDismissListener { updateDialog = null }
+        updateDialog = dialog
+        dialog.show()
     }
 }

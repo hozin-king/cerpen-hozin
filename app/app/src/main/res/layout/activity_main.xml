@@ -51,7 +51,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:text="Cerita pendek Indonesia · baca offline"
+            android:text="Cerita bersambung Indonesia · baca offline"
             android:textColor="@color/muted"
             android:textSize="14sp" />
 
@@ -75,7 +75,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Cerpen"
+                android:text="Cerbung"
                 android:textColor="@color/white" />
 
             <Button
@@ -237,17 +237,22 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
-                android:text="Semua Cerpen"
+                android:text="Semua Cerbung"
                 android:textColor="@color/ink"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
+            <!-- v1.1.5: tinggi TETAP + nested scrolling agar RecyclerView
+                 benar-benar me-recycle (lazy render). Sebelumnya
+                 wrap_content di dalam ScrollView membuat SEMUA item
+                 (916 berita) di-bind sekaligus — lag + boros RAM.
+                 Daftar kini scroll sendiri di dalam viewport-nya. -->
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/cerpen_list"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="480dp"
                 android:layout_marginTop="8dp"
-                android:nestedScrollingEnabled="false" />
+                android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
         <!-- ============ TAB BERITA ============ -->
@@ -280,9 +285,9 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/news_list"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="560dp"
                 android:layout_marginTop="8dp"
-                android:nestedScrollingEnabled="false" />
+                android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
         <!-- ============ TAB KOMIK ============ -->
@@ -315,9 +320,9 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/komik_list"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
+                android:layout_height="480dp"
                 android:layout_marginTop="8dp"
-                android:nestedScrollingEnabled="false" />
+                android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
         <Button

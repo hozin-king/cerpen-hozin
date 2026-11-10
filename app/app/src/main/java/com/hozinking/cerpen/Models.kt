@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import android.widget.ImageView
+import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,7 +28,9 @@ data class Cerpen(
     val genre: String,
     val deskripsi: String,
     val cover: String,
-    val seasons: List<Season>
+    val seasons: List<Season>,
+    /** Tanggal ditambahkan (ISO "yyyy-MM-dd"); kosong bila data lama belum menyimpannya. */
+    val date: String = ""
 ) {
     val totalEpisodes: Int get() = seasons.sumOf { it.episodes.size }
 
@@ -64,7 +68,9 @@ data class Komik(
     val genre: String,
     val deskripsi: String,
     val cover: String,
-    val episodes: List<KomikEpisode>
+    val episodes: List<KomikEpisode>,
+    /** Tanggal ditambahkan (ISO "yyyy-MM-dd"); kosong bila data lama belum menyimpannya. */
+    val date: String = ""
 ) {
     val totalEpisodes: Int get() = episodes.size
     val totalPanels: Int get() = episodes.sumOf { it.panels.size }
@@ -81,7 +87,11 @@ data class NewsArticle(
     /** Semua gambar artikel ("images", maks 3 dari scraper); fallback ke `image`. */
     val images: List<String> = emptyList(),
     /** Isi lengkap artikel; kosong bila data lama (pakai `summary`). */
-    val details: String = ""
+    val details: String = "",
+    /** URL asli gambar pertama (untuk unduh on-demand bila .enc tidak dibundel repo). */
+    val imageUrls: List<String> = emptyList(),
+    /** Waktu ditambahkan (ISO "yyyy-MM-dd'T'HH:mm:ss+07:00"); dipakai badge NEW 24 jam. */
+    val addedAt: String = ""
 )
 
 /** Ubah nilai `details` mentah (String / JSONObject / JSONArray / null) jadi teks bacaan rapi.
@@ -173,6 +183,84 @@ object NewsDetailsFormatter {
             .joinToString(" ") { it.replaceFirstChar(Char::titlecase) }
 }
 
+/** Tanggal tampil + badge NEW. Murni java.time/org.json — tanpa
+ *  dependensi Android — supaya bisa di-unit-test di JVM.
+ *  Aturan NEW (v1.1.5): item ditambahkan dalam 24 jam terakhir,
+ *  dihitung dari `addedAt` (ISO dengan offset). Bila `addedAt`
+ *  kosong, fallback ke `date` ("yyyy-MM-dd") = NEW bila tanggalnya
+ *  hari ini. Bila keduanya kosong -> bukan NEW. */
+object ItemDates {
+
+    private val MONTHS_ID = arrayOf(
+        "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+        "Jul", "Agu", "Sep", "Okt", "Nov", "Des"
+    )
+
+    /** "2026-11-09" -> "9 Nov 2026"; input tak dikenal dikembalikan apa adanya. */
+    fun format(dateIso: String): String {
+        val parts = dateIso.trim().split("-")
+        if (parts.size != 3) return dateIso
+        val year = parts[0].toIntOrNull() ?: return dateIso
+        val month = parts[1].toIntOrNull() ?: return dateIso
+        val day = parts[2].toIntOrNull() ?: return dateIso
+        if (month !in 1..12 || day !in 1..31) return dateIso
+        return "$day ${MONTHS_ID[month - 1]} $year"
+    }
+
+    /** true bila `addedAt` (atau `date`) masih dalam 24 jam terakhir. */
+    fun isNew(addedAt: String, date: String = ""): Boolean =
+        isNew(addedAt, date, System.currentTimeMillis())
+
+    /** Overload dengan jam eksplisit (untuk unit test). */
+    fun isNew(addedAt: String, date: String, nowMillis: Long): Boolean {
+        if (addedAt.isNotBlank()) {
+            return try {
+                val added = java.time.OffsetDateTime.parse(addedAt)
+                    .toInstant().toEpochMilli()
+                val age = nowMillis - added
+                age in 0..(24L * 60 * 60 * 1000)
+            } catch (e: Exception) {
+                false
+            }
+        }
+        if (date.isNotBlank()) {
+            return try {
+                val today = java.time.LocalDate.now()
+                    .format(java.time.format.DateTimeFormatter.ISO_LOCAL_DATE)
+                date.trim() == today
+            } catch (e: Exception) {
+                false
+            }
+        }
+        return false
+    }
+
+    /** Id dengan angka akhir terbesar ("cerpen-30" > "cerpen-9") — item terbaru di daftar. */
+    fun newestId(ids: List<String>): String? =
+        ids.maxByOrNull { trailingNumber(it) }
+
+    /** Angka di akhir id ("cerpen-30" -> 30); 0 bila tidak ada angka. */
+    fun trailingNumber(id: String): Int {
+        val digits = id.takeLastWhile { it.isDigit() }
+        return digits.toIntOrNull() ?: 0
+    }
+}
+
+/** Penyebaran gambar di antara blok paragraf teks berita (v1.1.5).
+ *  Data berita TIDAK menyimpan posisi gambar, jadi gambar disebar
+ *  merata: gambar ke-i disisipkan setelah blok ke
+ *  ((i+1) * (jumlahBlok+1)) / (jumlahGambar+1) - 1. Murni Kotlin — unit-testable. */
+object NewsBodyLayout {
+
+    /** Indeks blok (0-based) SETELAH blok mana tiap gambar disisipkan. */
+    fun insertAfter(blockCount: Int, imageCount: Int): List<Int> {
+        if (blockCount <= 0 || imageCount <= 0) return emptyList()
+        return (0 until imageCount).map { i ->
+            (((i + 1) * (blockCount + 1)) / (imageCount + 1) - 1).coerceIn(0, blockCount - 1)
+        }
+    }
+}
+
 /** Parser cerpen.json + news.json + komik.json (org.json, tanpa dependensi). */
 object ContentLoader {
 
@@ -213,7 +301,8 @@ object ContentLoader {
                         genre = o.optString("genre", ""),
                         deskripsi = o.optString("deskripsi", ""),
                         cover = o.optString("cover", ""),
-                        episodes = eps
+                        episodes = eps,
+                        date = o.optString("date", "")
                     )
                 )
             }
@@ -255,7 +344,8 @@ object ContentLoader {
                         genre = o.optString("genre", ""),
                         deskripsi = o.optString("deskripsi", ""),
                         cover = o.optString("cover", ""),
-                        seasons = seasons
+                        seasons = seasons,
+                        date = o.optString("date", "")
                     )
                 )
             }
@@ -283,6 +373,14 @@ object ContentLoader {
                 }
                 // Fallback data lama: hanya 1 gambar di "image".
                 if (imgs.isEmpty() && !single.isNullOrEmpty()) imgs.add(single)
+                val imgUrls = ArrayList<String>()
+                val urlArr = o.optJSONArray("image_urls")
+                if (urlArr != null) {
+                    for (j in 0 until urlArr.length()) {
+                        val s = urlArr.optString(j, "")
+                        if (s.isNotEmpty()) imgUrls.add(s)
+                    }
+                }
                 out.add(
                     NewsArticle(
                         title = o.optString("title", ""),
@@ -291,7 +389,9 @@ object ContentLoader {
                         date = o.optString("date", ""),
                         image = single,
                         images = imgs,
-                        details = NewsDetailsFormatter.format(o.opt("details"))
+                        details = NewsDetailsFormatter.format(o.opt("details")),
+                        imageUrls = imgUrls,
+                        addedAt = o.optString("added_at", "")
                     )
                 )
             }
@@ -311,6 +411,35 @@ object ContentLoader {
 object CoverCache {
     private val cache: LruCache<String, Bitmap> =
         LruCache((Runtime.getRuntime().maxMemory() / 1024 / 8).toInt())
+
+    /** Dekode gambar maksimal 3 thread latar sekaligus — daftar tetap
+     *  bisa di-scroll mulus walau banyak gambar antre. UI thread tidak
+     *  pernah mendekripsi/mendekode. */
+    private val loader = Executors.newFixedThreadPool(3)
+
+    /**
+     * Muat gambar ke ImageView secara asinkron (v1.1.5, lazy render):
+     * placeholder langsung tampil, dekripsi+dekode di thread latar.
+     * Tag view = assetPath; bila holder sudah di-recycle untuk item
+     * lain (tag berubah), hasil dibuang — tidak ada gambar nyasar.
+     */
+    fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int) {
+        view.setImageResource(placeholderRes)
+        view.tag = assetPath
+        loader.execute {
+            val bmp = get(context, assetPath, reqWidth)
+            if (view.tag != assetPath) return@execute // sudah di-recycle
+            view.post {
+                if (view.tag == assetPath && bmp != null) view.setImageBitmap(bmp)
+            }
+        }
+    }
+
+    /** Batalkan muatan tertunda untuk view yang di-recycle. */
+    fun clear(view: ImageView, placeholderRes: Int) {
+        view.tag = null
+        view.setImageResource(placeholderRes)
+    }
 
     /**
      * assetPath berbentuk "covers/cover_01.jpg" atau "news/img/xxx.jpg".

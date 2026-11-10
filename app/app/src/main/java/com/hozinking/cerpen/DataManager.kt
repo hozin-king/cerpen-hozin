@@ -1,6 +1,7 @@
 package com.hozinking.cerpen
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Handler
@@ -525,6 +526,240 @@ object DataManager {
         }.start()
     }
 
+    // ============ UNDUH PER KONTEN (v1.1.5) ============
+    // Satu item saja (bukan semua): cover cerpen, gambar satu berita,
+    // atau cover + panel satu episode komik. Jalur unduhnya SAMA dengan
+    // sync global (file .enc dari GitHub raw, verifikasi SHA-256,
+    // lewati yang sudah ada) — hanya daftar jalurnya yang per item.
+    // Gambar berita yang TIDAK dibundel repo (artikel lama) diambil
+    // dari URL aslinya lalu dienkripsi di perangkat (AES-256-GCM,
+    // format .enc yang sama) sebelum disimpan. Semua di thread latar;
+    // UI hanya menerima progres + hasil.
+
+    /** .enc gambar sudah ada di perangkat (bundel APK sudah disalin ke internal oleh ensureCopied). */
+    fun isImageOffline(context: Context, assetPath: String): Boolean {
+        val f = File(dataDir(context), "$assetPath.enc")
+        return f.exists() && f.length() > 0
+    }
+
+    fun cerpenImagePaths(cerpen: Cerpen): List<String> =
+        if (cerpen.cover.isNotEmpty()) listOf("covers/${cerpen.cover}") else emptyList()
+
+    fun newsImagePaths(article: NewsArticle): List<String> =
+        article.images.mapNotNull { raw ->
+            val name = raw.substringAfterLast("/")
+            if (name.isNotEmpty()) "news/img/$name" else null
+        }
+
+    fun komikImagePaths(komik: Komik): List<String> {
+        val out = ArrayList<String>()
+        if (komik.cover.isNotEmpty()) out += "komik/covers/${komik.cover}"
+        for (e in komik.episodes) {
+            for (p in e.panels) {
+                if (p.image.isNotEmpty()) out += "komik/panels/${p.image}"
+            }
+        }
+        return out
+    }
+
+    fun komikEpisodeImagePaths(komik: Komik, episode: KomikEpisode): List<String> {
+        val out = ArrayList<String>()
+        if (komik.cover.isNotEmpty()) out += "komik/covers/${komik.cover}"
+        for (p in episode.panels) {
+            if (p.image.isNotEmpty()) out += "komik/panels/${p.image}"
+        }
+        return out
+    }
+
+    fun isCerpenOffline(context: Context, cerpen: Cerpen): Boolean =
+        cerpenImagePaths(cerpen).all { isImageOffline(context, it) }
+
+    fun isNewsOffline(context: Context, article: NewsArticle): Boolean =
+        newsImagePaths(article).all { isImageOffline(context, it) }
+
+    fun isKomikOffline(context: Context, komik: Komik): Boolean =
+        komikImagePaths(komik).all { isImageOffline(context, it) }
+
+    fun isKomikEpisodeOffline(context: Context, episode: KomikEpisode): Boolean =
+        episode.panels.all { p ->
+            p.image.isEmpty() || isImageOffline(context, "komik/panels/${p.image}")
+        }
+
+    /** (panel sudah ada, total panel) satu komik — untuk badge "X/Y panel". */
+    fun komikPanelOfflineCount(context: Context, komik: Komik): Pair<Int, Int> {
+        var done = 0
+        var total = 0
+        for (e in komik.episodes) {
+            for (p in e.panels) {
+                if (p.image.isEmpty()) continue
+                total++
+                if (isImageOffline(context, "komik/panels/${p.image}")) done++
+            }
+        }
+        return done to total
+    }
+
+    /** (panel sudah ada, total panel) satu episode komik. */
+    fun komikEpisodePanelOfflineCount(context: Context, episode: KomikEpisode): Pair<Int, Int> {
+        var done = 0
+        var total = 0
+        for (p in episode.panels) {
+            if (p.image.isEmpty()) continue
+            total++
+            if (isImageOffline(context, "komik/panels/${p.image}")) done++
+        }
+        return done to total
+    }
+
+    fun downloadCerpen(
+        context: Context,
+        cerpen: Cerpen,
+        onProgress: SyncProgress? = null,
+        onDone: (SyncResult) -> Unit
+    ) = downloadItem(context, cerpenImagePaths(cerpen), emptyMap(), onProgress, onDone)
+
+    fun downloadKomik(
+        context: Context,
+        komik: Komik,
+        onProgress: SyncProgress? = null,
+        onDone: (SyncResult) -> Unit
+    ) = downloadItem(context, komikImagePaths(komik), emptyMap(), onProgress, onDone)
+
+    fun downloadKomikEpisode(
+        context: Context,
+        komik: Komik,
+        episode: KomikEpisode,
+        onProgress: SyncProgress? = null,
+        onDone: (SyncResult) -> Unit
+    ) = downloadItem(context, komikEpisodeImagePaths(komik, episode), emptyMap(), onProgress, onDone)
+
+    /**
+     * Unduh gambar satu berita. `imageUrls[0]` (URL asli gambar
+     * pertama) dipakai sebagai fallback bila .enc-nya tidak ada di
+     * repo — gambar ke-2/3 tidak punya URL asli di data, jadi hanya
+     * bisa dari repo (artikel terbaru yang dibundel).
+     */
+    fun downloadNewsItem(
+        context: Context,
+        article: NewsArticle,
+        onProgress: SyncProgress? = null,
+        onDone: (SyncResult) -> Unit
+    ) {
+        val paths = newsImagePaths(article)
+        val onDemand = HashMap<String, String>()
+        if (paths.isNotEmpty() && article.imageUrls.isNotEmpty()) {
+            onDemand[paths[0]] = article.imageUrls[0]
+        }
+        downloadItem(context, paths, onDemand, onProgress, onDone)
+    }
+
+    /** Mesin unduh per item: manifest segar dulu, lalu tiap jalur yang belum ada. */
+    private fun downloadItem(
+        context: Context,
+        assetPaths: List<String>,
+        onDemandUrls: Map<String, String>,
+        onProgress: SyncProgress?,
+        onDone: (SyncResult) -> Unit
+    ) {
+        Thread {
+            val result = try {
+                runItemDownload(context, assetPaths, onDemandUrls, onProgress)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                SyncResult(false, 0, 0, 0)
+            }
+            mainHandler.post { onDone(result) }
+        }.start()
+    }
+
+    private fun runItemDownload(
+        context: Context,
+        assetPaths: List<String>,
+        onDemandUrls: Map<String, String>,
+        onProgress: SyncProgress?
+    ): SyncResult {
+        fun report(done: Int, total: Int, label: String) {
+            onProgress?.let { cb -> mainHandler.post { cb(done, total, label) } }
+        }
+        val missing = assetPaths.filter { !isImageOffline(context, it) }
+        val alreadyHad = assetPaths.size - missing.size
+        if (missing.isEmpty()) return SyncResult(false, 0, alreadyHad, 0)
+        if (!isOnline(context)) return SyncResult(false, 0, alreadyHad, missing.size)
+        val key = ContentGuard.getKey()
+        if (key == null) {
+            Log.w(TAG, "unduh item dibatalkan: kunci native tidak tersedia")
+            return SyncResult(false, 0, alreadyHad, missing.size)
+        }
+        val manifest = fetchFreshManifest(context, key) ?: loadManifest(context)
+        var downloaded = 0
+        var failed = 0
+        for ((i, path) in missing.withIndex()) {
+            report(i, missing.size, "Mengunduh gambar")
+            var ok = false
+            if (manifest != null) ok = syncOneImage(context, manifest, path, key)
+            if (!ok) {
+                val url = onDemandUrls[path]
+                if (url != null) ok = downloadAndEncryptImage(context, path, url, key)
+            }
+            if (ok) downloaded++ else failed++
+        }
+        report(missing.size, missing.size, "Selesai")
+        return SyncResult(downloaded > 0, downloaded, alreadyHad, failed)
+    }
+
+    /**
+     * Ambil manifest.json.enc segar dari repo (kecil) supaya SHA
+     * verifikasi selalu terbaru; simpan + batalkan cache. Null bila
+     * offline / gagal — pemanggil memakai manifest cache.
+     */
+    private fun fetchFreshManifest(context: Context, key: ByteArray): JSONObject? {
+        val enc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc") ?: return null
+        val text = ContentCrypto.decrypt(enc, key)?.let { String(it, Charsets.UTF_8) }
+            ?: return null
+        return try {
+            val parsed = JSONObject(text)
+            val dest = manifestEncFile(context)
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(enc)
+            invalidateManifestCache()
+            parsed
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Unduh gambar dari URL asli, validasi dulu bahwa byte-nya memang
+     * gambar yang bisa di-decode (URL kadang menunjuk halaman video,
+     * bukan gambar), lalu enkripsi (AES-256-GCM, format .enc sama)
+     * dan simpan. Tanpa verifikasi SHA (tidak ada entri manifest) —
+     * tag GCM tetap mengautentikasi isi saat dibaca nanti.
+     */
+    private fun downloadAndEncryptImage(
+        context: Context,
+        assetPath: String,
+        url: String,
+        key: ByteArray
+    ): Boolean {
+        val bytes = fetchBytes(url) ?: return false
+        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) {
+            Log.w(TAG, "unduh $assetPath: URL bukan gambar, ditolak")
+            return false
+        }
+        val enc = ContentCrypto.encrypt(bytes, key) ?: return false
+        return try {
+            val dest = File(dataDir(context), "$assetPath.enc")
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(enc)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     /** Inti sync: manifest -> 3 JSON -> semua gambar yang belum ada. */
     private fun runSync(context: Context, onProgress: SyncProgress?): SyncResult {
         fun report(done: Int, total: Int, label: String) {
@@ -568,7 +803,7 @@ object DataManager {
         var failed = 0
         val imagePaths = ArrayList<String>()
         val jsonLabels = mapOf(
-            "cerpen.json" to "Mengunduh daftar cerpen…",
+            "cerpen.json" to "Mengunduh daftar cerbung…",
             "news.json" to "Mengunduh daftar berita…",
             "komik.json" to "Mengunduh daftar komik…"
         )

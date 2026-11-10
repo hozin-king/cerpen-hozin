@@ -3,6 +3,7 @@ package com.hozinking.cerpen
 import android.util.Log
 import java.io.ByteArrayInputStream
 import java.security.MessageDigest
+import java.security.SecureRandom
 import java.util.zip.GZIPInputStream
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -35,6 +36,31 @@ object ContentCrypto {
     fun sha256Hex(bytes: ByteArray): String {
         val d = MessageDigest.getInstance("SHA-256").digest(bytes)
         return d.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Enkripsi plaintext jadi blob .enc (format yang SAMA dengan file
+     * repo: IV acak 12 byte + ciphertext + tag GCM 16 byte). Dipakai
+     * unduh per konten on-demand: gambar dari URL asli dienkripsi di
+     * perangkat sebelum disimpan, supaya di disk hanya ada .enc.
+     * Gambar TIDAK di-gzip (JPEG hampir tidak mengecil — v1.1.4).
+     * Null bila kunci bukan 32 byte / enkripsi gagal.
+     */
+    fun encrypt(plain: ByteArray, key: ByteArray): ByteArray? {
+        if (key.size != 32) return null
+        return try {
+            val iv = ByteArray(IV_LEN).also { SecureRandom().nextBytes(it) }
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.ENCRYPT_MODE,
+                SecretKeySpec(key, "AES"),
+                GCMParameterSpec(TAG_BITS, iv)
+            )
+            iv + cipher.doFinal(plain)
+        } catch (e: Exception) {
+            logW("enkripsi gagal: ${e.message}")
+            null
+        }
     }
 
     /** Dekripsi blob .enc. Null bila kunci salah / data korup / format salah. */

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Jalur FileProvider untuk instalasi APK update (v1.1.5):
+     hanya cache/updates yang dibagikan ke installer sistem. -->
+<paths>
+    <cache-path name="apk" path="updates/" />
+</paths>

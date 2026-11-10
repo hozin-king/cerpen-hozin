@@ -1,26 +1,40 @@
 package com.hozinking.cerpen
 
+import android.content.res.ColorStateList
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+
+/** Baris daftar yang punya tombol Unduh + ikon sudah-diunduh (v1.1.5). */
+interface DownloadRow {
+    val downloadButton: Button
+    val offlineIcon: ImageView
+}
 
 /** Daftar cerpen di Home. */
 class CerpenAdapter(
     private val items: List<Cerpen>,
     private val onClick: (Cerpen) -> Unit,
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
-    private val textScale: Float = 1f
+    private val textScale: Float = 1f,
+    private val onDownload: (Cerpen, Int) -> Unit = { _, _ -> },
+    /** Id cerpen terbaru (badge NEW); null = tidak ada badge. */
+    private val newestId: String? = null
 ) : RecyclerView.Adapter<CerpenAdapter.VH>() {
 
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
+    class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val cover: ImageView = v.findViewById(R.id.cover)
         val judul: TextView = v.findViewById(R.id.judul)
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
+        val badgeNew: TextView = v.findViewById(R.id.badge_new)
+        override val downloadButton: Button = v.findViewById(R.id.download_button)
+        override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -42,15 +56,32 @@ class CerpenAdapter(
         h.desc.text = c.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
-        val bmp = if (c.cover.isNotEmpty()) {
-            CoverCache.get(h.itemView.context, "covers/${c.cover}", 300)
-        } else null
-        if (bmp != null) {
-            h.cover.setImageBitmap(bmp)
+        // v1.1.5: cover dimuat asinkron (lazy) — decode tidak pernah di UI thread.
+        if (c.cover.isNotEmpty()) {
+            CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
-            h.cover.setImageResource(R.drawable.cover_placeholder)
+            CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        }
+        // Badge NEW: cerpen terbaru (data cerpen belum punya tanggal).
+        h.badgeNew.visibility = if (c.id == newestId) View.VISIBLE else View.GONE
+        // Status unduh: sudah offline = ikon, belum = tombol Unduh.
+        val ctx = h.itemView.context
+        val offline = DataManager.isCerpenOffline(ctx, c)
+        h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
+        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.isEnabled = true
+        h.downloadButton.setOnClickListener {
+            val p = h.bindingAdapterPosition
+            if (p != RecyclerView.NO_POSITION) onDownload(c, p)
         }
         h.itemView.setOnClickListener { onClick(c) }
+    }
+
+    override fun onViewRecycled(h: VH) {
+        CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        super.onViewRecycled(h)
     }
 
     override fun getItemCount(): Int = items.size
@@ -61,14 +92,18 @@ class NewsAdapter(
     private val items: List<NewsArticle>,
     private val onClick: (NewsArticle) -> Unit = {},
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
-    private val textScale: Float = 1f
+    private val textScale: Float = 1f,
+    private val onDownload: (NewsArticle, Int) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<NewsAdapter.VH>() {
 
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
+    class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val thumb: ImageView = v.findViewById(R.id.thumb)
         val title: TextView = v.findViewById(R.id.title)
         val summary: TextView = v.findViewById(R.id.summary)
         val meta: TextView = v.findViewById(R.id.meta)
+        val badgeNew: TextView = v.findViewById(R.id.badge_new)
+        override val downloadButton: Button = v.findViewById(R.id.download_button)
+        override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -86,20 +121,38 @@ class NewsAdapter(
         h.summary.text = a.summary
         h.summary.setTextColor(palette.inkSoft)
         h.summary.textSize = 13f * textScale
-        h.meta.text = listOf(a.source, a.date).filter { it.isNotEmpty() }.joinToString(" · ")
+        // v1.1.5: tanggal tampil ("9 Nov 2026") + badge NEW (< 24 jam).
+        val dateLabel = if (a.date.isNotEmpty()) ItemDates.format(a.date) else ""
+        h.meta.text = listOf(a.source, dateLabel).filter { it.isNotEmpty() }.joinToString(" · ")
         h.meta.setTextColor(palette.muted)
+        h.badgeNew.visibility = if (ItemDates.isNew(a.addedAt, a.date)) View.VISIBLE else View.GONE
         val firstImage = a.images.firstOrNull() ?: a.image
-        val bmp = if (!firstImage.isNullOrEmpty()) {
-            CoverCache.get(h.itemView.context, "news/$firstImage", 300)
-        } else null
-        if (bmp != null) {
-            h.thumb.setImageBitmap(bmp)
-            h.thumb.visibility = View.VISIBLE
+        // v1.1.5: thumbnail dimuat asinkron; hanya dari .enc lokal
+        // (tidak auto-fetch dari internet saat scroll — gambar
+        // diunduh per item lewat tombol Unduh / buka detail).
+        if (!firstImage.isNullOrEmpty()) {
+            CoverCache.loadInto(h.itemView.context, "news/$firstImage", 300, h.thumb, R.drawable.news_placeholder)
         } else {
-            h.thumb.setImageResource(R.drawable.news_placeholder)
-            h.thumb.visibility = View.VISIBLE
+            CoverCache.clear(h.thumb, R.drawable.news_placeholder)
+        }
+        h.thumb.visibility = View.VISIBLE
+        val ctx = h.itemView.context
+        val offline = DataManager.isNewsOffline(ctx, a)
+        h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
+        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.isEnabled = true
+        h.downloadButton.setOnClickListener {
+            val p = h.bindingAdapterPosition
+            if (p != RecyclerView.NO_POSITION) onDownload(a, p)
         }
         h.itemView.setOnClickListener { onClick(a) }
+    }
+
+    override fun onViewRecycled(h: VH) {
+        CoverCache.clear(h.thumb, R.drawable.news_placeholder)
+        super.onViewRecycled(h)
     }
 
     override fun getItemCount(): Int = items.size
@@ -213,15 +266,21 @@ class KomikAdapter(
     private val items: List<Komik>,
     private val onClick: (Komik) -> Unit,
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
-    private val textScale: Float = 1f
+    private val textScale: Float = 1f,
+    private val onDownload: (Komik, Int) -> Unit = { _, _ -> },
+    /** Id komik terbaru (badge NEW); null = tidak ada badge. */
+    private val newestId: String? = null
 ) : RecyclerView.Adapter<KomikAdapter.VH>() {
 
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
+    class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val cover: ImageView = v.findViewById(R.id.cover)
         val judul: TextView = v.findViewById(R.id.judul)
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
+        val badgeNew: TextView = v.findViewById(R.id.badge_new)
+        override val downloadButton: Button = v.findViewById(R.id.download_button)
+        override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -238,20 +297,41 @@ class KomikAdapter(
         h.judul.textSize = 17f * textScale
         h.genre.text = k.genre
         h.genre.setTextColor(palette.accent)
-        h.meta.text = "${k.totalEpisodes} episode · ${k.totalPanels} panel"
+        val ctx = h.itemView.context
+        val (panelsDone, panelsTotal) = DataManager.komikPanelOfflineCount(ctx, k)
+        val offline = DataManager.isKomikOffline(ctx, k)
+        h.meta.text = if (offline) {
+            "${k.totalEpisodes} episode · ${k.totalPanels} panel"
+        } else if (panelsTotal > 0 && panelsDone > 0) {
+            "${k.totalEpisodes} episode · ${k.totalPanels} panel · $panelsDone/$panelsTotal panel offline"
+        } else {
+            "${k.totalEpisodes} episode · ${k.totalPanels} panel"
+        }
         h.meta.setTextColor(palette.muted)
         h.desc.text = k.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
-        val bmp = if (k.cover.isNotEmpty()) {
-            CoverCache.get(h.itemView.context, "komik/covers/${k.cover}", 300)
-        } else null
-        if (bmp != null) {
-            h.cover.setImageBitmap(bmp)
+        if (k.cover.isNotEmpty()) {
+            CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
-            h.cover.setImageResource(R.drawable.cover_placeholder)
+            CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        }
+        h.badgeNew.visibility = if (k.id == newestId) View.VISIBLE else View.GONE
+        h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
+        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.isEnabled = true
+        h.downloadButton.setOnClickListener {
+            val p = h.bindingAdapterPosition
+            if (p != RecyclerView.NO_POSITION) onDownload(k, p)
         }
         h.itemView.setOnClickListener { onClick(k) }
+    }
+
+    override fun onViewRecycled(h: VH) {
+        CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        super.onViewRecycled(h)
     }
 
     override fun getItemCount(): Int = items.size
@@ -262,13 +342,16 @@ class KomikEpisodeAdapter(
     private val komik: Komik,
     private val onClick: (KomikEpisode) -> Unit,
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
-    private val textScale: Float = 1f
+    private val textScale: Float = 1f,
+    private val onDownload: (KomikEpisode, Int) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<KomikEpisodeAdapter.VH>() {
 
-    class VH(v: View) : RecyclerView.ViewHolder(v) {
+    class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val no: TextView = v.findViewById(R.id.ep_no)
         val judul: TextView = v.findViewById(R.id.ep_judul)
         val status: TextView = v.findViewById(R.id.ep_status)
+        override val downloadButton: Button = v.findViewById(R.id.download_button)
+        override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -284,8 +367,26 @@ class KomikEpisodeAdapter(
         h.judul.text = e.judul
         h.judul.setTextColor(palette.ink)
         h.judul.textSize = 16f * textScale
-        h.status.text = "${e.panels.size} panel"
+        val ctx = h.itemView.context
+        val (done, total) = DataManager.komikEpisodePanelOfflineCount(ctx, e)
+        val offline = DataManager.isKomikEpisodeOffline(ctx, e)
+        h.status.text = if (total == 0) {
+            "${e.panels.size} panel"
+        } else if (offline) {
+            "${e.panels.size} panel · Tersimpan offline"
+        } else {
+            "${e.panels.size} panel · $done/$total offline"
+        }
         h.status.setTextColor(palette.muted)
+        h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
+        h.downloadButton.text = "⬇ Unduh episode ini"
+        h.downloadButton.isEnabled = true
+        h.downloadButton.setOnClickListener {
+            val p = h.bindingAdapterPosition
+            if (p != RecyclerView.NO_POSITION) onDownload(e, p)
+        }
         h.itemView.setOnClickListener { onClick(e) }
     }
 

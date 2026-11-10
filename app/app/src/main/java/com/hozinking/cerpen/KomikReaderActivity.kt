@@ -3,11 +3,13 @@ package com.hozinking.cerpen
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.View
+import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 /**
@@ -30,6 +32,13 @@ class KomikReaderActivity : AppCompatActivity() {
     private lateinit var metaText: TextView
     private lateinit var loading: ProgressBar
 
+    private var komikId: String = ""
+    private var episodeNo: Int = 1
+    private var currentKomik: Komik? = null
+    private var currentEpisode: KomikEpisode? = null
+    private var downloading = false
+    private var downloadButton: Button? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_komik_reader)
@@ -42,11 +51,17 @@ class KomikReaderActivity : AppCompatActivity() {
         metaText = findViewById(R.id.komik_reader_meta)
         loading = findViewById(R.id.loading)
 
-        val komikId = intent.getStringExtra(EXTRA_KOMIK_ID) ?: run { finish(); return }
-        val episodeNo = intent.getIntExtra(EXTRA_EPISODE, 1)
+        val komikIdExtra = intent.getStringExtra(EXTRA_KOMIK_ID) ?: run { finish(); return }
+        val episodeNoExtra = intent.getIntExtra(EXTRA_EPISODE, 1)
+        komikId = komikIdExtra
+        episodeNo = episodeNoExtra
 
         applyTheme()
+        loadEpisode()
+    }
 
+    /** Muat episode (dekripsi panel di thread latar) lalu bind. */
+    private fun loadEpisode() {
         loading.visibility = View.VISIBLE
         Thread {
             val komik = DataManager.loadKomik(this).firstOrNull { it.id == komikId }
@@ -73,6 +88,8 @@ class KomikReaderActivity : AppCompatActivity() {
     }
 
     private fun bind(komik: Komik, episode: KomikEpisode, bitmaps: List<Bitmap?>) {
+        currentKomik = komik
+        currentEpisode = episode
         supportActionBar?.title = komik.judul
         titleText.text = episode.judul
         metaText.text = "${komik.judul} · Episode ${episode.no} · ${episode.panels.size} panel"
@@ -80,6 +97,26 @@ class KomikReaderActivity : AppCompatActivity() {
         val scale = ThemeHelper.fontScale(this)
         val d = resources.displayMetrics.density
         container.removeAllViews()
+        downloadButton = null
+        // v1.1.5: bila ada panel yang belum terunduh, tampilkan tombol
+        // "Unduh episode ini" di atas panel (bukan pesan jalan buntu).
+        val missing = bitmaps.count { it == null }
+        if (missing > 0) {
+            val (done, total) = DataManager.komikEpisodePanelOfflineCount(this, episode)
+            val btn = Button(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    bottomMargin = (12 * d).toInt()
+                }
+                text = "⬇ Unduh episode ini ($done/$total panel)"
+                setTextColor(palette.onAccent)
+                setOnClickListener { downloadEpisode() }
+            }
+            downloadButton = btn
+            container.addView(btn)
+        }
         for ((index, panel) in episode.panels.withIndex()) {
             val imageView = ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
@@ -95,8 +132,8 @@ class KomikReaderActivity : AppCompatActivity() {
                 imageView.setImageBitmap(bmp)
             } else {
                 imageView.setImageResource(R.drawable.cover_placeholder)
-                // Gambar komik on-demand (tidak di-bundle APK): beri tahu
-                // pengguna cara mengunduhnya, jangan tampilkan placeholder diam.
+                // Panel belum terunduh — tombol "Unduh episode ini" sudah
+                // ada di atas; di sini cukup penanda singkat.
                 val hintView = TextView(this).apply {
                     layoutParams = LinearLayout.LayoutParams(
                         LinearLayout.LayoutParams.MATCH_PARENT,
@@ -104,7 +141,7 @@ class KomikReaderActivity : AppCompatActivity() {
                     ).apply {
                         topMargin = (8 * d).toInt()
                     }
-                    text = "Panel belum terunduh — kembali lalu tarik ke bawah di tab Komik untuk mengunduh."
+                    text = "Panel belum terunduh — ketuk tombol unduh di atas."
                     setTextColor(palette.muted)
                     textSize = 13f * scale
                 }
@@ -144,6 +181,29 @@ class KomikReaderActivity : AppCompatActivity() {
             container.addView(teksView)
         }
         scrollView.scrollTo(0, 0)
+    }
+
+    /** v1.1.5: unduh episode ini, lalu muat ulang panel. */
+    private fun downloadEpisode() {
+        val komik = currentKomik ?: return
+        val episode = currentEpisode ?: return
+        if (downloading) return
+        downloading = true
+        val btn = downloadButton
+        btn?.isEnabled = false
+        btn?.text = "Mengunduh…"
+        DataManager.downloadKomikEpisode(this, komik, episode, onProgress = { done, total, _ ->
+            btn?.text = "Mengunduh $done/$total…"
+        }) { result ->
+            downloading = false
+            Toast.makeText(
+                this,
+                if (result.failed == 0) "Episode tersimpan offline"
+                else "${result.downloaded} panel diunduh, ${result.failed} gagal — coba lagi saat sinyal bagus",
+                Toast.LENGTH_LONG
+            ).show()
+            loadEpisode()
+        }
     }
 
     private fun applyTheme() {
