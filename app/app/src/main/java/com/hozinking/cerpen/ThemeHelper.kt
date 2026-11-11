@@ -89,29 +89,15 @@ object ThemeHelper {
     }
 
     /**
-     * Background bottom dock kaca (v1.1.8): warna kartu tembus pandang
-     * + border + radius penuh. Tanpa blur live — kaca dicapai dari
-     * translucency statis, jadi tidak ada biaya per-frame.
+     * Warna tint kaca dock (v1.1.12) — dipakai GlassView: [sheen
+     * specular atas, isi tengah ~40%, isi bawah ~32%]. dockBackground
+     * lama (66% statis) dihapus — diganti kaca hidup GlassView.
      */
-    fun dockBackground(context: Context, palette: ThemePalette): GradientDrawable {
-        val d = context.resources.displayMetrics.density
-        return GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(translucent(palette.card, 0.66f))
-            setStroke((1f * d).toInt(), palette.cardBorder)
-            cornerRadius = 30f * d
-        }
-    }
-
-    /** Background bubble Cari: lingkaran accent + garis tepi terang tipis. */
-    fun bubbleBackground(context: Context, palette: ThemePalette): GradientDrawable {
-        val d = context.resources.displayMetrics.density
-        return GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(palette.accent)
-            setStroke((1.5f * d).toInt(), Color.argb(110, 255, 255, 255))
-        }
-    }
+    fun glassTintColors(palette: ThemePalette): IntArray = intArrayOf(
+        Color.argb(46, 255, 255, 255), // sheen specular atas
+        translucent(palette.card, 0.40f), // isi tengah ~40%
+        translucent(palette.card, 0.32f) // isi bawah sedikit lebih tipis
+    )
 
     private fun translucent(color: Int, alpha: Float): Int {
         val a = (255 * alpha).toInt().coerceIn(0, 255)

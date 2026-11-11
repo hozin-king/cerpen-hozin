@@ -122,6 +122,21 @@
                 android:textSize="13sp"
                 android:visibility="gone" />
         </LinearLayout>
+
+        <!-- v1.1.13: lanjutkan membaca (hanya bila ada progres). -->
+        <Button
+            android:id="@+id/detail_continue_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:minHeight="0dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp"
+            android:text="▶ Lanjutkan"
+            android:textColor="@color/white"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </LinearLayout>
 
     <View

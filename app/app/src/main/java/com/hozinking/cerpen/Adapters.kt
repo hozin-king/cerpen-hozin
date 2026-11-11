@@ -361,6 +361,158 @@ class KomikAdapter(
     override fun getItemCount(): Int = items.size
 }
 
+/** Satu baris daftar campur tab Cerbung (v1.1.12): cerpen atau cergam. */
+sealed interface CerbungItem {
+    val id: String
+    val date: String
+    data class CerpenItem(val cerpen: Cerpen) : CerbungItem {
+        override val id: String get() = cerpen.id
+        override val date: String get() = cerpen.date
+    }
+    data class CergamItem(val komik: Komik) : CerbungItem {
+        override val id: String get() = komik.id
+        override val date: String get() = komik.date
+    }
+}
+
+/** Daftar campur Cerbung + Cergam di tab Cerbung (v1.1.12) — memakai
+ * item cerpen yang sama; baris cergam ber-badge "Cergam" dan membuka
+ * detail komik. Isi bind disalin dari CerpenAdapter/KomikAdapter. */
+class CerbungAdapter(
+    private val items: List<CerbungItem>,
+    private val onCerpenClick: (Cerpen) -> Unit,
+    private val onKomikClick: (Komik) -> Unit,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f,
+    private val onCerpenDownload: (Cerpen, Int) -> Unit = { _, _ -> },
+    private val onKomikDownload: (Komik, Int) -> Unit = { _, _ -> },
+    private val newestCerpenId: String? = null,
+    private val newestKomikId: String? = null
+) : RecyclerView.Adapter<CerbungAdapter.VH>() {
+
+    class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
+        val cover: ImageView = v.findViewById(R.id.cover)
+        val judul: TextView = v.findViewById(R.id.judul)
+        val genre: TextView = v.findViewById(R.id.genre)
+        val meta: TextView = v.findViewById(R.id.meta)
+        val desc: TextView = v.findViewById(R.id.deskripsi)
+        val badgeNew: TextView = v.findViewById(R.id.badge_new)
+        val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
+        val badgeCergam: TextView = v.findViewById(R.id.badge_cergam)
+        override val downloadButton: Button = v.findViewById(R.id.download_button)
+        override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        val v = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_cerpen, parent, false)
+        return VH(v)
+    }
+
+    override fun onBindViewHolder(h: VH, pos: Int) {
+        when (val item = items[pos]) {
+            is CerbungItem.CerpenItem -> bindCerpen(h, item.cerpen)
+            is CerbungItem.CergamItem -> bindCergam(h, item.komik)
+        }
+    }
+
+    private fun bindCerpen(h: VH, c: Cerpen) {
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
+        h.judul.text = c.judul
+        h.judul.setTextColor(palette.ink)
+        h.judul.textSize = 17f * textScale
+        h.genre.text = c.genre
+        h.genre.setTextColor(palette.accent)
+        h.meta.text = "${c.totalEpisodes} episode · ${c.seasons.size} season"
+        h.meta.setTextColor(palette.muted)
+        h.desc.text = c.deskripsi
+        h.desc.setTextColor(palette.inkSoft)
+        h.desc.textSize = 14f * textScale
+        if (c.cover.isNotEmpty()) {
+            CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
+        } else {
+            CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        }
+        h.badgeCergam.visibility = View.GONE
+        val updatedText = UpdatedStore.badgeTextCerpen(h.itemView.context, c)
+        if (updatedText != null) {
+            h.badgeUpdated.text = updatedText
+            h.badgeUpdated.visibility = View.VISIBLE
+            h.badgeNew.visibility = View.GONE
+        } else {
+            h.badgeUpdated.visibility = View.GONE
+            h.badgeNew.visibility = if (c.id == newestCerpenId) View.VISIBLE else View.GONE
+        }
+        val ctx = h.itemView.context
+        val offline = DataManager.isCerpenOffline(ctx, c)
+        h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
+        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.isEnabled = true
+        h.downloadButton.setOnClickListener {
+            val p = h.bindingAdapterPosition
+            if (p != RecyclerView.NO_POSITION) onCerpenDownload(c, p)
+        }
+        h.itemView.setOnClickListener { onCerpenClick(c) }
+    }
+
+    private fun bindCergam(h: VH, k: Komik) {
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
+        h.judul.text = k.judul
+        h.judul.setTextColor(palette.ink)
+        h.judul.textSize = 17f * textScale
+        h.genre.text = k.genre
+        h.genre.setTextColor(palette.accent)
+        val ctx = h.itemView.context
+        val (panelsDone, panelsTotal) = DataManager.komikPanelOfflineCount(ctx, k)
+        val offline = DataManager.isKomikOffline(ctx, k)
+        h.meta.text = if (offline) {
+            "${k.totalEpisodes} episode · ${k.totalPanels} panel"
+        } else if (panelsTotal > 0 && panelsDone > 0) {
+            "${k.totalEpisodes} episode · ${k.totalPanels} panel · $panelsDone/$panelsTotal panel offline"
+        } else {
+            "${k.totalEpisodes} episode · ${k.totalPanels} panel"
+        }
+        h.meta.setTextColor(palette.muted)
+        h.desc.text = k.deskripsi
+        h.desc.setTextColor(palette.inkSoft)
+        h.desc.textSize = 14f * textScale
+        if (k.cover.isNotEmpty()) {
+            CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
+        } else {
+            CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        }
+        h.badgeCergam.visibility = View.VISIBLE
+        val updatedText = UpdatedStore.badgeTextKomik(ctx, k)
+        if (updatedText != null) {
+            h.badgeUpdated.text = updatedText
+            h.badgeUpdated.visibility = View.VISIBLE
+            h.badgeNew.visibility = View.GONE
+        } else {
+            h.badgeUpdated.visibility = View.GONE
+            h.badgeNew.visibility = if (k.id == newestKomikId) View.VISIBLE else View.GONE
+        }
+        h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
+        if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
+        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.isEnabled = true
+        h.downloadButton.setOnClickListener {
+            val p = h.bindingAdapterPosition
+            if (p != RecyclerView.NO_POSITION) onKomikDownload(k, p)
+        }
+        h.itemView.setOnClickListener { onKomikClick(k) }
+    }
+
+    override fun onViewRecycled(h: VH) {
+        CoverCache.clear(h.cover, R.drawable.cover_placeholder)
+        super.onViewRecycled(h)
+    }
+
+    override fun getItemCount(): Int = items.size
+}
+
 /** Daftar episode di halaman detail komik — memakai item episode yang sama. */
 class KomikEpisodeAdapter(
     private val komik: Komik,

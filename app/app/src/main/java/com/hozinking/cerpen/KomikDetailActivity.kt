@@ -30,6 +30,7 @@ class KomikDetailActivity : AppCompatActivity() {
     private lateinit var episodeList: RecyclerView
     private lateinit var loading: ProgressBar
     private lateinit var downloadButton: Button
+    private lateinit var continueButton: Button
     private lateinit var offlineIcon: ImageView
     private lateinit var offlineLabel: TextView
 
@@ -52,6 +53,7 @@ class KomikDetailActivity : AppCompatActivity() {
         episodeList = findViewById(R.id.episode_list)
         loading = findViewById(R.id.loading)
         downloadButton = findViewById(R.id.detail_download_button)
+        continueButton = findViewById(R.id.detail_continue_button)
         offlineIcon = findViewById(R.id.detail_offline_icon)
         offlineLabel = findViewById(R.id.detail_offline_label)
 
@@ -87,6 +89,7 @@ class KomikDetailActivity : AppCompatActivity() {
         komik?.let {
             episodeList.adapter = episodeAdapter(it)
             refreshDownloadState()
+            refreshContinueButton()
         }
     }
 
@@ -116,7 +119,28 @@ class KomikDetailActivity : AppCompatActivity() {
         }
         episodeList.adapter = episodeAdapter(k)
         refreshDownloadState()
+        refreshContinueButton()
         downloadButton.setOnClickListener { downloadWholeKomik() }
+    }
+
+    /** v1.1.13: tombol Lanjutkan bila ada progres baca komik ini
+     *  (ProgressStore.getLastKomik). Panel dikunci ke jumlah panel
+     *  episode saat ini supaya aman bila konten berubah. */
+    private fun refreshContinueButton() {
+        val k = komik ?: return
+        val last = ProgressStore.getLastKomik(this, k.id)
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val ep = last?.let { k.episode(it.episode) }
+        if (last == null || ep == null) {
+            continueButton.visibility = View.GONE
+            return
+        }
+        val panel = last.panel.coerceIn(0, (ep.panels.size - 1).coerceAtLeast(0))
+        continueButton.text = "▶ Lanjutkan · Episode ${last.episode} · Panel ${panel + 1}"
+        continueButton.backgroundTintList = ColorStateList.valueOf(palette.accent)
+        continueButton.setTextColor(palette.onAccent)
+        continueButton.visibility = View.VISIBLE
+        continueButton.setOnClickListener { openReader(k.id, last.episode, panel) }
     }
 
     private fun episodeAdapter(k: Komik): KomikEpisodeAdapter =
@@ -181,10 +205,11 @@ class KomikDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun openReader(komikId: String, episode: Int) {
+    private fun openReader(komikId: String, episode: Int, panel: Int = 0) {
         val i = Intent(this, KomikReaderActivity::class.java)
         i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, komikId)
         i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
+        i.putExtra(KomikReaderActivity.EXTRA_PANEL, panel)
         startActivity(i)
     }
 

@@ -12,7 +12,6 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.util.AttributeSet
 import android.view.View
 import android.view.ViewTreeObserver
@@ -35,11 +34,17 @@ import kotlin.math.max
  *
  * Tangkap ulang dipicu saat scroll berhenti (debounce 150 ms), saat
  * konten berubah (MainActivity memanggil refresh()), dan saat posisi /
- * ukuran view berubah. v1.1.15: tangkap ulang JUGA selama scroll aktif,
- * di-throttle tiap ~90 ms (bukan tiap event mentah, supaya tidak jank)
- * — jadi latar di balik dock ikut bergerak saat scroll, bukan diam lalu
- * lompat setelah berhenti. Gagal tangkap = tampilan statis (tint +
- * stroke saja), tidak pernah hitam/crash.
+ * ukuran view berubah. v1.1.16: SELAMA scroll aktif TIDAK ada tangkap
+ * ulang sama sekali (v1.1.15 menangkap tiap ~90 ms — dua GlassView
+ * menggambar ulang seluruh ScrollView ke bitmap di main thread, itu
+ * yang bikin scroll jank + daftar telat rapi). Sebagai gantinya bitmap
+ * tangkapan terakhir DIGESER mengikuti delta scroll (parallax offset):
+ * konten di balik dock bergerak seragam saat scroll, jadi bitmap lama
+ * yang digeser ΔY = latar yang benar secara piksel, dengan biaya ~nol.
+ * Strip tepi setinggi ΔY (tidak ada di bitmap) hanya menampilkan tint,
+ * dan diperbaiki otomatis oleh tangkapan saat scroll berhenti.
+ * Gagal tangkap = tampilan statis (tint + stroke saja), tidak pernah
+ * hitam/crash.
  */
 class GlassView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
@@ -52,8 +57,6 @@ class GlassView @JvmOverloads constructor(
         private const val CAPTURE_SCALE = 0.25f
         /** Jeda setelah scroll berhenti sebelum tangkap ulang. */
         private const val SETTLE_MS = 150L
-        /** Throttle tangkap selama scroll aktif (v1.1.15): maks ~11x/detik. */
-        private const val LIVE_MS = 90L
     }
 
     var shape = SHAPE_PILL
@@ -63,12 +66,11 @@ class GlassView @JvmOverloads constructor(
     private var palette: ThemePalette? = null
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { capture() }
-    /** Tangkap terjadwal di batas interval throttle (v1.1.15). */
-    private val liveRunnable = Runnable {
-        capture()
-        lastCaptureMs = SystemClock.uptimeMillis()
-    }
-    private var lastCaptureMs = 0L
+    /** Posisi scroll backdrop saat tangkapan terakhir dibuat. */
+    private var captureScrollY = 0
+    /** Geseran bitmap selama scroll aktif (v1.1.16): delta scroll Y sejak
+     *  tangkapan terakhir — diterapkan sebagai translasi di onDraw. */
+    private var scrollOffsetY = 0
     private val scrollListener = ViewTreeObserver.OnScrollChangedListener { onScrollChanged() }
     private var scrollObserver: ViewTreeObserver? = null
     private var backdropBitmap: Bitmap? = null
@@ -100,21 +102,17 @@ class GlassView @JvmOverloads constructor(
     }
 
     /**
-     * Scroll berubah (v1.1.15): tangkap ulang juga SELAMA scroll, tapi
-     * di-throttle tiap LIVE_MS — cukup lama sejak tangkapan terakhir
-     * -> tangkap sekarang; kalau belum -> jadwalkan satu tangkapan di
-     * batas interval berikutnya (bukan tiap event mentah). Tangkap akhir
-     * saat scroll berhenti tetap via scheduleRefresh() (debounce).
+     * Scroll berubah (v1.1.16): JANGAN tangkap ulang — geser saja bitmap
+     * tangkapan terakhir mengikuti delta scroll Y (parallax offset) lalu
+     * gambar ulang (invalidate = murah, tanpa draw hierarki backdrop).
+     * Tangkap ulang tetap dijadwalkan via scheduleRefresh() (debounce)
+     * untuk saat scroll berhenti.
      */
     private fun onScrollChanged() {
-        val now = SystemClock.uptimeMillis()
-        if (now - lastCaptureMs >= LIVE_MS) {
-            handler.removeCallbacks(liveRunnable)
-            capture()
-            lastCaptureMs = now
-        } else {
-            handler.removeCallbacks(liveRunnable)
-            handler.postDelayed(liveRunnable, LIVE_MS - (now - lastCaptureMs))
+        val target = backdropView
+        if (target != null && backdropBitmap != null) {
+            scrollOffsetY = target.scrollY - captureScrollY
+            invalidate()
         }
         scheduleRefresh()
     }
@@ -133,7 +131,6 @@ class GlassView @JvmOverloads constructor(
         scrollObserver?.let { if (it.isAlive) it.removeOnScrollChangedListener(scrollListener) }
         scrollObserver = null
         handler.removeCallbacks(refreshRunnable)
-        handler.removeCallbacks(liveRunnable)
         backdropBitmap?.recycle()
         backdropBitmap = null
         super.onDetachedFromWindow()
@@ -190,6 +187,8 @@ class GlassView @JvmOverloads constructor(
             c.restore()
             backdropBitmap?.recycle()
             backdropBitmap = bmp
+            captureScrollY = target.scrollY
+            scrollOffsetY = 0
             invalidate()
         } catch (e: Exception) {
             // Tangkap gagal: pertahankan bitmap lama / tampilan statis.
@@ -207,6 +206,9 @@ class GlassView @JvmOverloads constructor(
         if (bmp != null && !bmp.isRecycled) {
             canvas.save()
             canvas.clipPath(clipPath)
+            // v1.1.16: geser bitmap mengikuti scroll (parallax) — konten
+            // di balik dock bergerak seragam, jadi translasi = latar benar.
+            if (scrollOffsetY != 0) canvas.translate(0f, -scrollOffsetY.toFloat())
             canvas.drawBitmap(bmp, null, Rect(0, 0, width, height), bitmapPaint)
             canvas.restore()
         }

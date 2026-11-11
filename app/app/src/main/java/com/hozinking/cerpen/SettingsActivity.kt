@@ -24,6 +24,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var sepiaButton: Button
     private lateinit var othersTitle: TextView
     private lateinit var othersNote: TextView
+    private lateinit var checkUpdateButton: Button
     private lateinit var versionText: TextView
 
     private var textSizeSp: Float = 17f
@@ -45,6 +46,7 @@ class SettingsActivity : AppCompatActivity() {
         sepiaButton = findViewById(R.id.theme_sepia)
         othersTitle = findViewById(R.id.settings_others_title)
         othersNote = findViewById(R.id.settings_others_note)
+        checkUpdateButton = findViewById(R.id.set_check_update)
         versionText = findViewById(R.id.settings_version)
 
         textSizeSp = ProgressStore.getTextSizeSp(this)
@@ -63,6 +65,13 @@ class SettingsActivity : AppCompatActivity() {
         dayButton.setOnClickListener { setThemeChoice(ProgressStore.THEME_DAY) }
         nightButton.setOnClickListener { setThemeChoice(ProgressStore.THEME_NIGHT) }
         sepiaButton.setOnClickListener { setThemeChoice(ProgressStore.THEME_SEPIA) }
+        // v1.1.15: minta MainActivity cek update SEKARANG saat kembali
+        // (pola flag prefs yang sama dengan force_tag/pending_install_tag).
+        checkUpdateButton.setOnClickListener {
+            getSharedPreferences("update_check", MODE_PRIVATE)
+                .edit().putBoolean("manual_check_requested", true).apply()
+            finish()
+        }
 
         refresh()
     }
@@ -88,6 +97,7 @@ class SettingsActivity : AppCompatActivity() {
         sizeValue.setTextColor(palette.ink)
         othersTitle.setTextColor(palette.ink)
         othersNote.setTextColor(palette.muted)
+        styleThemeButton(checkUpdateButton, true, palette)
         // v1.2: versi asli dari BuildConfig (bukan hardcode).
         versionText.text = "Cerpen Hozin v${BuildConfig.VERSION_NAME}"
         versionText.setTextColor(palette.muted)

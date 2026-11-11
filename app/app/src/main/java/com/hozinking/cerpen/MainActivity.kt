@@ -7,9 +7,11 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.View
+import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -32,8 +34,13 @@ class MainActivity : AppCompatActivity() {
     // v1.1.10: bottom dock kaca — satu sel = ikon + label; tab 3 = Koleksi.
     private data class DockItem(val cell: View, val icon: TextView, val label: TextView, val tab: Int)
     private lateinit var dockBar: LinearLayout
+    private lateinit var dockBarBg: GlassView
     private lateinit var dockCari: View
+    private lateinit var dockCariBg: GlassView
     private lateinit var dockCariIcon: TextView
+    // v1.1.14: remote config — banner di atas daftar + spacer dock (tempat bubble Cari).
+    private lateinit var remoteBanner: TextView
+    private lateinit var dockSpacer: View
     private lateinit var dockItems: List<DockItem>
     private lateinit var cerpenTab: LinearLayout
     private lateinit var newsTab: LinearLayout
@@ -54,7 +61,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var continueMeta: TextView
     private lateinit var continueButton: Button
     private lateinit var searchInput: EditText
+    private lateinit var searchNewsInput: EditText
+    private lateinit var searchKomikInput: EditText
     private lateinit var genreRow: LinearLayout
+    private lateinit var genreScroll: HorizontalScrollView
+    private lateinit var typeRow: LinearLayout
     private lateinit var cerpenList: RecyclerView
     private lateinit var historySection: LinearLayout
     private lateinit var historyList: RecyclerView
@@ -71,8 +82,15 @@ class MainActivity : AppCompatActivity() {
     private var newsData: List<NewsArticle> = emptyList()
     private var komikData: List<Komik> = emptyList()
     private var query: String = ""
+    private var newsQuery: String = ""
+    private var komikQuery: String = ""
     private var selectedGenre: String = "Semua"
+    /** Filter jenis daftar Cerbung (v1.1.12): Semua / Cerbung / Cergam. */
+    private var selectedType: String = "Semua"
     private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik, 3 = Koleksi
+    /** Remote config aktif (v1.1.14) + warna aksen override-nya (null = palette.accent). */
+    private var remoteConfig: RemoteConfig = RemoteConfig.DEFAULT
+    private var remoteAccent: Int? = null
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
     private var syncBusy = false
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
@@ -106,8 +124,12 @@ class MainActivity : AppCompatActivity() {
         appFooter = findViewById(R.id.app_footer)
         mainScroll = findViewById(R.id.main_scroll)
         dockBar = findViewById(R.id.dock_bar)
+        dockBarBg = findViewById(R.id.dock_bar_bg)
         dockCari = findViewById(R.id.dock_cari)
+        dockCariBg = findViewById(R.id.dock_cari_bg)
         dockCariIcon = findViewById(R.id.dock_cari_icon)
+        remoteBanner = findViewById(R.id.remote_banner)
+        dockSpacer = findViewById(R.id.dock_spacer)
         dockItems = listOf(
             DockItem(findViewById(R.id.dock_cerbung), findViewById(R.id.dock_cerbung_icon), findViewById(R.id.dock_cerbung_label), 0),
             DockItem(findViewById(R.id.dock_berita), findViewById(R.id.dock_berita_icon), findViewById(R.id.dock_berita_label), 1),
@@ -133,7 +155,15 @@ class MainActivity : AppCompatActivity() {
         continueMeta = findViewById(R.id.continue_meta)
         continueButton = findViewById(R.id.continue_button)
         searchInput = findViewById(R.id.search_input)
+        searchNewsInput = findViewById(R.id.search_news_input)
+        searchKomikInput = findViewById(R.id.search_komik_input)
         genreRow = findViewById(R.id.genre_row)
+        genreScroll = findViewById(R.id.genre_scroll)
+        typeRow = findViewById(R.id.type_row)
+        // v1.1.12: latar kaca dock menangkap konten di baliknya.
+        dockBarBg.backdropView = mainScroll
+        dockCariBg.backdropView = mainScroll
+        buildTypeChips()
         cerpenList = findViewById(R.id.cerpen_list)
         historySection = findViewById(R.id.history_section)
         historyList = findViewById(R.id.history_list)
@@ -169,17 +199,56 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
+        // v1.1.11: cari di Berita (judul/sumber) + Komik (judul/genre),
+        // pola sama dengan search Cerpen di atas.
+        searchNewsInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                newsQuery = s?.toString()?.trim() ?: ""
+                applyNewsList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        searchKomikInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                komikQuery = s?.toString()?.trim() ?: ""
+                applyKomikList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
         koleksiSettingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         dockItems.forEach { item ->
-            item.cell.setOnClickListener { showTab(item.tab) }
+            // v1.1.11: ketuk-ulang tab aktif = scroll ke atas + refresh.
+            item.cell.setOnClickListener {
+                if (item.tab == selectedTab) onTabReselected(item.tab) else showTab(item.tab)
+            }
         }
         dockCari.setOnClickListener { focusSearch() }
+
+        // v1.1.12: bubble Cari muncul dengan morphing — scale + overshoot,
+        // menempel ke tepi pill (leher cair didekati overlap, tanpa path).
+        dockCari.scaleX = 0.5f
+        dockCari.scaleY = 0.5f
+        dockCari.translationY = 28f * resources.displayMetrics.density
+        dockCari.animate()
+            .scaleX(1f).scaleY(1f).translationY(0f)
+            .setStartDelay(150)
+            .setDuration(450)
+            .setInterpolator(OvershootInterpolator(2f))
+            .start()
 
         applyThemeAndFont()
         showTab(selectedTab)
         loadContent()
+        // v1.1.14: remote config — terapkan cache dulu, lalu fetch
+        // non-blocking (gagal = diam, cache/DEFAULT tetap dipakai).
+        remoteConfig = RemoteConfig.loadCached(this)
+        applyRemoteConfig(remoteConfig)
+        fetchRemoteConfig()
         // v1.1.6: konten auto-update — tiap buka aplikasi (throttle 30 mnt)
         // langsung cek manifest GitHub dan unduh yang baru, tanpa aksi
         // pengguna. Gagal (tanpa internet) = diam, konten lama
@@ -190,6 +259,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // v1.1.15: cek update manual dari Pengaturan — jalan sekali saat kembali.
+        if (updatePrefs.getBoolean("manual_check_requested", false)) {
+            updatePrefs.edit().remove("manual_check_requested").apply()
+            checkForAppUpdateManual()
+        }
         applyThemeAndFont()
         showContinueReading()
         showHistoryAndBookmarks()
@@ -199,9 +273,13 @@ class MainActivity : AppCompatActivity() {
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
         }
+        if (newsData.isNotEmpty()) {
+            applyNewsList()
+        }
         if (komikData.isNotEmpty()) {
             applyKomikList()
         }
+        refreshGlass()
     }
 
     /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
@@ -228,37 +306,139 @@ class MainActivity : AppCompatActivity() {
         searchInput.setTextColor(palette.ink)
         searchInput.setHintTextColor(palette.muted)
         searchInput.background = ThemeHelper.cardBackground(this, palette)
+        searchNewsInput.setTextColor(palette.ink)
+        searchNewsInput.setHintTextColor(palette.muted)
+        searchNewsInput.background = ThemeHelper.cardBackground(this, palette)
+        searchKomikInput.setTextColor(palette.ink)
+        searchKomikInput.setHintTextColor(palette.muted)
+        searchKomikInput.background = ThemeHelper.cardBackground(this, palette)
         continueSection.background = ThemeHelper.cardBackground(this, palette)
-        dockBar.background = ThemeHelper.dockBackground(this, palette)
-        dockCari.background = ThemeHelper.bubbleBackground(this, palette)
+        // v1.1.12: dock + bubble digambar GlassView (blur latar + tint +
+        // stroke); dockBar/dockCari sendiri transparan.
+        dockBarBg.setGlass(palette, GlassView.SHAPE_PILL)
+        dockCariBg.setGlass(palette, GlassView.SHAPE_OVAL)
         dockCariIcon.setTextColor(palette.onAccent)
+        // v1.1.14: terapkan lagi urutan/label/banner/aksen config (tema
+        // bisa berubah dari Settings — styling banner ikut palet baru).
+        applyRemoteConfig(remoteConfig)
+    }
+
+    // ============ REMOTE CONFIG (v1.1.14) ============
+    // Tab dock, banner, dan aksen dari CMS — tanpa toast/error ke user
+    // bila fetch gagal (cache terakhir / DEFAULT tetap dipakai).
+
+    /** Fetch config di thread background; sukses -> simpan + terapkan. */
+    private fun fetchRemoteConfig() {
+        Thread {
+            val fetched = RemoteConfig.fetch(this) ?: return@Thread
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                applyRemoteConfig(fetched)
+            }
+        }.start()
+    }
+
+    /** Indeks tab (0..3) yang visible menurut config aktif. */
+    private fun visibleTabIndices(): List<Int> =
+        remoteConfig.tabs.mapNotNull { t ->
+            RemoteConfig.tabIndex(t.id).takeIf { it >= 0 && t.visible }
+        }
+
+    /**
+     * Terapkan config ke dock + banner + aksen. Urutan sel dock mengikuti
+     * urutan `tabs`; spacer (tempat bubble Cari) tetap di tengah (posisi
+     * ke-3). Semua tab hidden -> tampilkan semua dengan default.
+     */
+    private fun applyRemoteConfig(config: RemoteConfig) {
+        remoteConfig = config
+        remoteAccent = config.accentColor()
+        val tabs = if (config.tabs.any { it.visible }) config.tabs else RemoteConfig.DEFAULT.tabs
+        dockBar.removeAllViews()
+        var spacerAdded = false
+        tabs.forEachIndexed { i, t ->
+            if (i == 2) {
+                dockBar.addView(dockSpacer)
+                spacerAdded = true
+            }
+            val item = dockItems.firstOrNull { it.tab == RemoteConfig.tabIndex(t.id) } ?: return@forEachIndexed
+            item.label.text = t.label.ifEmpty { RemoteConfig.defaultLabel(t.id) }
+            item.cell.visibility = if (t.visible) View.VISIBLE else View.GONE
+            dockBar.addView(item.cell)
+        }
+        if (!spacerAdded) dockBar.addView(dockSpacer)
+        // Banner: satu untuk semua tab, maks 140 karakter; kosong = sembunyi.
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val bannerText = config.banner.trim().take(RemoteConfig.MAX_BANNER_CHARS)
+        if (bannerText.isEmpty()) {
+            remoteBanner.visibility = View.GONE
+        } else {
+            remoteBanner.text = bannerText
+            remoteBanner.setTextColor(palette.ink)
+            remoteBanner.background = ThemeHelper.cardBackground(this, palette)
+            remoteBanner.visibility = View.VISIBLE
+        }
+        // Bila tab aktif disembunyikan -> showTab pindah ke visible pertama.
         showTab(selectedTab)
     }
 
+    /** Minta tangkap ulang blur kaca (saat konten berubah). */
+    private fun refreshGlass() {
+        dockBarBg.scheduleRefresh()
+        dockCariBg.scheduleRefresh()
+    }
+
     private fun showTab(tab: Int) {
-        selectedTab = tab
+        // v1.1.14: tab yang disembunyikan config tidak bisa dibuka —
+        // pindah ke tab visible pertama (fail-closed bila semua hidden).
+        val visible = visibleTabIndices()
+        val effective = if (tab in visible) tab else visible.firstOrNull() ?: 0
+        selectedTab = effective
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
-        cerpenTab.visibility = if (tab == 0) View.VISIBLE else View.GONE
-        newsTab.visibility = if (tab == 1) View.VISIBLE else View.GONE
-        komikTab.visibility = if (tab == 2) View.VISIBLE else View.GONE
-        koleksiTab.visibility = if (tab == 3) View.VISIBLE else View.GONE
-        dockItems.forEach { styleDockItem(it, it.tab == tab, palette) }
+        cerpenTab.visibility = if (effective == 0) View.VISIBLE else View.GONE
+        newsTab.visibility = if (effective == 1) View.VISIBLE else View.GONE
+        komikTab.visibility = if (effective == 2) View.VISIBLE else View.GONE
+        koleksiTab.visibility = if (effective == 3) View.VISIBLE else View.GONE
+        dockItems.forEach { styleDockItem(it, it.tab == effective, palette) }
     }
 
     private fun styleDockItem(item: DockItem, selected: Boolean, palette: ThemePalette) {
-        val color = if (selected) palette.accent else palette.muted
+        // v1.1.14: aksen config menggantikan palette.accent HANYA untuk
+        // label/ikon tab aktif di dock — warna lain tidak berubah.
+        val color = if (selected) remoteAccent ?: palette.accent else palette.muted
         item.icon.setTextColor(color)
         item.label.setTextColor(color)
     }
 
-    /** Bubble Cari: pindah ke tab Cerpen, scroll ke atas, fokus kolom cari. */
+    /** Bubble Cari (v1.1.11): fokus ke kolom cari TAB YANG SEDANG
+     * AKTIF, scroll ke atas, tampilkan keyboard. Koleksi tidak punya
+     * kolom cari — tetap lompat ke Cerpen seperti dulu. */
     private fun focusSearch() {
-        showTab(0)
+        val target: EditText = when (selectedTab) {
+            1 -> searchNewsInput
+            2 -> searchKomikInput
+            else -> {
+                if (selectedTab == 3) showTab(0)
+                searchInput
+            }
+        }
         mainScroll.post {
             mainScroll.smoothScrollTo(0, 0)
-            searchInput.requestFocus()
+            target.requestFocus()
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+            imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /** Ketuk-ulang tab aktif (v1.1.11): scroll ke atas + refresh
+     * konten (syncNow tanpa throttle, sama seperti pull-to-refresh).
+     * Koleksi isinya lokal — scroll saja, tanpa sync. */
+    private fun onTabReselected(tab: Int) {
+        mainScroll.post { mainScroll.smoothScrollTo(0, 0) }
+        when (tab) {
+            0 -> { cerpenList.scrollToPosition(0); syncNow() }
+            1 -> { newsList.scrollToPosition(0); syncNow() }
+            2 -> { komikList.scrollToPosition(0); syncNow() }
+            3 -> Unit
         }
     }
 
@@ -298,24 +478,38 @@ class MainActivity : AppCompatActivity() {
                 loading.visibility = View.GONE
                 buildGenreChips()
                 applyCerpenFilter()
+                applyNewsList()
                 applyKomikList()
-                val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
-                val scale = ThemeHelper.fontScale(this)
-                newsList.adapter = NewsAdapter(
-                    newsData, { openNewsDetail(it) }, palette, scale,
-                    onDownload = { a, pos -> downloadNews(a, pos) }
-                )
                 showContinueReading()
                 showHistoryAndBookmarks()
+                refreshGlass()
             }
         }.start()
     }
 
+    /** Daftar berita (difilter query cari bila ada) — v1.1.11. */
+    private fun applyNewsList() {
+        val q = newsQuery.lowercase()
+        val filtered = if (q.isEmpty()) newsData else newsData.filter { a ->
+            a.title.lowercase().contains(q) || a.source.lowercase().contains(q)
+        }
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val scale = ThemeHelper.fontScale(this)
+        newsList.adapter = NewsAdapter(
+            filtered, { openNewsDetail(it) }, palette, scale,
+            onDownload = { a, pos -> downloadNews(a, pos) }
+        )
+    }
+
     private fun applyKomikList() {
+        val q = komikQuery.lowercase()
+        val filtered = if (q.isEmpty()) komikData else komikData.filter { k ->
+            k.judul.lowercase().contains(q) || k.genre.lowercase().contains(q)
+        }
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
         komikList.adapter = KomikAdapter(
-            komikData, { openKomikDetail(it) }, palette, scale,
+            filtered, { openKomikDetail(it) }, palette, scale,
             onDownload = { k, pos -> downloadKomik(k, pos) },
             newestId = newestKomikId
         )
@@ -370,19 +564,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Chip filter jenis (v1.1.12): Semua / Cerbung / Cergam. Genre hanya
+     * memfilter cerpen — saat jenis = Cergam, baris genre disembunyikan. */
+    private fun buildTypeChips() {
+        typeRow.removeAllViews()
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        for (t in listOf("Semua", "Cerbung", "Cergam")) {
+            val chip = Button(this).apply {
+                text = t
+                textSize = 13f
+                isSingleLine = true
+                minimumWidth = 0
+                minimumHeight = 0
+                val d = resources.displayMetrics.density
+                setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
+                setTextColor(
+                    if (t == selectedType) palette.onAccent
+                    else palette.accent
+                )
+                setBackgroundColor(
+                    if (t == selectedType) palette.accent
+                    else palette.card
+                )
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                params.marginEnd = 8
+                layoutParams = params
+                setOnClickListener {
+                    selectedType = t
+                    buildTypeChips()
+                    applyCerpenFilter()
+                }
+            }
+            typeRow.addView(chip)
+        }
+    }
+
+    /** Daftar Cerbung campur cerpen + cergam (v1.1.12), terbaru dulu. */
     private fun applyCerpenFilter() {
         val q = query.lowercase()
-        val filtered = cerpenData.filter { c ->
+        val cerpenItems = if (selectedType == "Cergam") emptyList() else cerpenData.filter { c ->
             (selectedGenre == "Semua" || c.genre == selectedGenre) &&
                 (q.isEmpty() || c.judul.lowercase().contains(q) || c.genre.lowercase().contains(q))
-        }
+        }.map { CerbungItem.CerpenItem(it) }
+        val komikItems = if (selectedType == "Cerbung") emptyList() else komikData.filter { k ->
+            q.isEmpty() || k.judul.lowercase().contains(q) || k.genre.lowercase().contains(q)
+        }.map { CerbungItem.CergamItem(it) }
+        val mixed = (cerpenItems + komikItems).sortedWith(
+            compareByDescending<CerbungItem> { it.date }
+                .thenByDescending { ItemDates.trailingNumber(it.id) }
+        )
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
-        cerpenList.adapter = CerpenAdapter(
-            filtered, { openDetail(it) }, palette, scale,
-            onDownload = { c, pos -> downloadCerpen(c, pos) },
-            newestId = newestCerpenId
+        cerpenList.adapter = CerbungAdapter(
+            mixed, { openDetail(it) }, { openKomikDetail(it) }, palette, scale,
+            onCerpenDownload = { c, pos -> downloadCerpen(c, pos) },
+            onKomikDownload = { k, pos -> downloadKomik(k, pos) },
+            newestCerpenId = newestCerpenId,
+            newestKomikId = newestKomikId
         )
+        genreScroll.visibility = if (selectedType == "Cergam") View.GONE else View.VISIBLE
     }
 
     private fun showContinueReading() {
@@ -564,6 +807,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncNow() {
+        // v1.1.14: pull-to-refresh juga me-refresh remote config
+        // (non-blocking, sejajar dengan sync konten — tetap jalan walau
+        // sync konten sedang sibuk).
+        fetchRemoteConfig()
         // Cegah sync ganda (auto + tarik bersamaan).
         if (syncBusy) return
         setSyncBusy(true)
@@ -588,6 +835,54 @@ class MainActivity : AppCompatActivity() {
     // Fail-open: cek gagal (tanpa internet / API error) = diam, aplikasi
     // tetap jalan normal. Dialog ini HANYA update kode — konten di-sync
     // DataManager dan bisa update tanpa update APK.
+
+    /**
+     * Cek update MANUAL (v1.1.15, tombol "Periksa Pembaruan" di Pengaturan):
+     * lewati throttle 6 jam + abaikan dismissed_tag. Hasil SELALU
+     * diberitahu: ada update -> dialog seperti biasa; sudah terbaru ->
+     * toast; gagal jaringan/respons aneh -> toast gagal (jangan diam).
+     * Throttle auto-check 6 jam TIDAK diubah (last_check_ms tetap
+     * ditulis agar auto-check tidak langsung mengulang).
+     */
+    private fun checkForAppUpdateManual() {
+        val installed = BuildConfig.VERSION_NAME
+        updatePrefs.edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
+        Thread {
+            val latestJson = UpdateCheck.fetchText(UpdateCheck.LATEST_RELEASE_URL)
+            if (latestJson == null) {
+                runOnUiThread {
+                    Toast.makeText(this, "Gagal memeriksa pembaruan — periksa internet lalu coba lagi", Toast.LENGTH_LONG).show()
+                }
+                return@Thread
+            }
+            val latest = UpdateCheck.parseLatestRelease(latestJson)
+            if (latest == null) {
+                runOnUiThread {
+                    Toast.makeText(this, "Gagal memeriksa pembaruan — respons tidak dikenal", Toast.LENGTH_LONG).show()
+                }
+                return@Thread
+            }
+            if (UpdateCheck.compareVersions(latest.version, installed) <= 0) {
+                runOnUiThread {
+                    Toast.makeText(this, "Sudah versi terbaru (v$installed)", Toast.LENGTH_SHORT).show()
+                }
+                return@Thread
+            }
+            val tagsJson = UpdateCheck.fetchText(UpdateCheck.RELEASES_URL)
+            val tags = if (tagsJson == null) emptyList() else UpdateCheck.parseReleaseTags(tagsJson)
+            val decision = UpdateCheck.decide(installed, latest, tags)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (decision is UpdateCheck.Decision.Force) {
+                    updatePrefs.edit()
+                        .putString("force_tag", decision.release.tag)
+                        .putString("force_apk_url", decision.release.apkUrl)
+                        .apply()
+                }
+                showUpdateDialog(decision)
+            }
+        }.start()
+    }
 
     /** Cek update: onCreate + onResume, throttle maks 1x per 6 jam. */
     private fun checkForAppUpdate() {
