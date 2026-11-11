@@ -509,22 +509,7 @@ object DataManager {
         syncInternal(context, onProgress) { result -> onDone(result.changed) }
     }
 
-    /**
-     * Unduh SEMUA konten untuk dibaca offline: manifest + 3 JSON + semua
-     * gambar (cover cerpen, cover + panel komik, gambar berita) yang
-     * belum ada di perangkat. Jalur unduhnya SAMA dengan sync biasa,
-     * hanya ringkasannya yang dikembalikan penuh supaya pengguna tahu
-     * semuanya sudah offline (atau berapa yang gagal dan perlu diulang).
-     */
-    fun downloadAllForOffline(
-        context: Context,
-        onProgress: SyncProgress? = null,
-        onDone: (SyncResult) -> Unit
-    ) {
-        syncInternal(context, onProgress, onDone)
-    }
-
-    /** Satu thread background untuk sync maupun unduh-semua; [onDone] di main thread. */
+    /** Satu thread background untuk sync; [onDone] di main thread. */
     private fun syncInternal(
         context: Context,
         onProgress: SyncProgress?,
@@ -818,6 +803,11 @@ object DataManager {
         val oldCerpen = loadCerpen(context).associateBy { it.id }
         val oldKomik = loadKomik(context).associateBy { it.id }
         val newTexts = HashMap<String, String>()
+        // v1.1.10: URL asli gambar pertama tiap berita — jalur unduh
+        // on-demand (pola downloadNewsItem) untuk gambar berita yang
+        // tidak punya entri manifest (hanya gambar pertama yang punya
+        // URL asli; gambar ke-2/3 hanya dari repo).
+        val onDemand = HashMap<String, String>()
         // v1.1.7: diisi diffAndMarkUpdates di akhir (dulu `= false` + true
         // di tiap fetch berhasil — itu yang bikin toast "Konten baru
         // diunduh" muncul walau kontennya sama).
@@ -839,19 +829,49 @@ object DataManager {
             }
             newTexts[jsonName] = text
             imagePaths += collectImagePaths(text, jsonName)
+            if (jsonName == "news.json") {
+                try {
+                    for (a in ContentLoader.parseNews(text)) {
+                        val paths = newsImagePaths(a)
+                        if (paths.isNotEmpty() && a.imageUrls.isNotEmpty()) {
+                            onDemand[paths[0]] = a.imageUrls[0]
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
 
         // 3. Semua gambar yang belum ada di perangkat — unduh satu per
         //    satu dengan progres determinan (total sudah diketahui).
-        val distinct = imagePaths.distinct()
-        val missing = distinct.filter { path ->
+        // v1.1.10: hanya jalur yang BISA diunduh yang masuk antrean
+        // (punya entri manifest ATAU URL on-demand). Jalur tanpa
+        // keduanya (kebanyakan gambar berita ke-2/3) dilewati diam-diam
+        // — bukan gagal — supaya refresh berikutnya tidak mengulang
+        // unduhan yang memang tidak pernah bisa selesai.
+        fun isOffline(path: String): Boolean {
             val dest = File(dataDir(context), "$path.enc")
-            !(dest.exists() && dest.length() > 0)
+            return dest.exists() && dest.length() > 0
         }
-        val alreadyHad = distinct.size - missing.size
+        val distinct = imagePaths.distinct()
+        val alreadyHad = distinct.count { isOffline(it) }
+        val missing = distinct.filter { path ->
+            !isOffline(path) &&
+                (manifest.optJSONObject(path) != null || onDemand.containsKey(path))
+        }
         for ((i, path) in missing.withIndex()) {
             report(i, missing.size, "Mengunduh gambar")
-            if (syncOneImage(context, manifest, path, key)) downloaded++ else failed++
+            if (syncOneImage(context, manifest, path, key)) {
+                downloaded++
+            } else {
+                val url = onDemand[path]
+                if (url != null && downloadAndEncryptImage(context, path, url, key)) {
+                    downloaded++
+                } else {
+                    failed++
+                }
+            }
         }
         if (missing.isNotEmpty()) {
             report(missing.size, missing.size, "Gambar selesai")

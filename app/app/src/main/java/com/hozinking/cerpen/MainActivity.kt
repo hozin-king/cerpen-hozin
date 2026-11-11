@@ -29,8 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appSubtitle: TextView
     private lateinit var appFooter: TextView
     private lateinit var mainScroll: ScrollView
-    // v1.1.8: bottom dock kaca — satu sel = ikon + label; tab -1 (Pengaturan)
-    // tidak pernah terpilih (selalu warna muted).
+    // v1.1.10: bottom dock kaca — satu sel = ikon + label; tab 3 = Koleksi.
     private data class DockItem(val cell: View, val icon: TextView, val label: TextView, val tab: Int)
     private lateinit var dockBar: LinearLayout
     private lateinit var dockCari: View
@@ -39,6 +38,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var cerpenTab: LinearLayout
     private lateinit var newsTab: LinearLayout
     private lateinit var komikTab: LinearLayout
+    private lateinit var koleksiTab: LinearLayout
+    private lateinit var koleksiTitle: TextView
+    private lateinit var koleksiSubtitle: TextView
+    private lateinit var koleksiSettingsButton: Button
     private lateinit var historyTitle: TextView
     private lateinit var bookmarkTitle: TextView
     private lateinit var allCerpenTitle: TextView
@@ -60,8 +63,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var newsList: RecyclerView
     private lateinit var komikList: RecyclerView
     private lateinit var loading: ProgressBar
-    private lateinit var refreshButton: Button
-    private lateinit var downloadAllButton: Button
     private lateinit var syncProgressBar: ProgressBar
     private lateinit var syncProgressText: TextView
     private lateinit var swipeRefresh: SwipeRefreshLayout
@@ -71,7 +72,9 @@ class MainActivity : AppCompatActivity() {
     private var komikData: List<Komik> = emptyList()
     private var query: String = ""
     private var selectedGenre: String = "Semua"
-    private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik
+    private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik, 3 = Koleksi
+    /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
+    private var syncBusy = false
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
     private var newestCerpenId: String? = null
     private var newestKomikId: String? = null
@@ -109,11 +112,15 @@ class MainActivity : AppCompatActivity() {
             DockItem(findViewById(R.id.dock_cerbung), findViewById(R.id.dock_cerbung_icon), findViewById(R.id.dock_cerbung_label), 0),
             DockItem(findViewById(R.id.dock_berita), findViewById(R.id.dock_berita_icon), findViewById(R.id.dock_berita_label), 1),
             DockItem(findViewById(R.id.dock_komik), findViewById(R.id.dock_komik_icon), findViewById(R.id.dock_komik_label), 2),
-            DockItem(findViewById(R.id.dock_settings), findViewById(R.id.dock_settings_icon), findViewById(R.id.dock_settings_label), -1)
+            DockItem(findViewById(R.id.dock_koleksi), findViewById(R.id.dock_koleksi_icon), findViewById(R.id.dock_koleksi_label), 3)
         )
         cerpenTab = findViewById(R.id.cerpen_tab)
         newsTab = findViewById(R.id.news_tab)
         komikTab = findViewById(R.id.komik_tab)
+        koleksiTab = findViewById(R.id.koleksi_tab)
+        koleksiTitle = findViewById(R.id.koleksi_title)
+        koleksiSubtitle = findViewById(R.id.koleksi_subtitle)
+        koleksiSettingsButton = findViewById(R.id.koleksi_settings_button)
         historyTitle = findViewById(R.id.history_title)
         bookmarkTitle = findViewById(R.id.bookmark_title)
         allCerpenTitle = findViewById(R.id.all_cerpen_title)
@@ -135,14 +142,11 @@ class MainActivity : AppCompatActivity() {
         newsList = findViewById(R.id.news_list)
         komikList = findViewById(R.id.komik_list)
         loading = findViewById(R.id.loading)
-        refreshButton = findViewById(R.id.refresh_button)
-        downloadAllButton = findViewById(R.id.download_all_button)
         syncProgressBar = findViewById(R.id.sync_progress_bar)
         syncProgressText = findViewById(R.id.sync_progress_text)
         swipeRefresh = findViewById(R.id.swipe_refresh)
 
-        // v1.2: pull-to-refresh memakai jalur sync yang SAMA dengan tombol
-        // "Perbarui Konten" (syncNow) — tidak ada jalur sync kedua.
+        // v1.2: pull-to-refresh = satu-satunya pemicu sync manual (syncNow).
         swipeRefresh.setOnRefreshListener { syncNow() }
 
         cerpenList.layoutManager = LinearLayoutManager(this)
@@ -165,13 +169,11 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
-        refreshButton.setOnClickListener { syncNow() }
-        downloadAllButton.setOnClickListener { downloadAll() }
+        koleksiSettingsButton.setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         dockItems.forEach { item ->
-            item.cell.setOnClickListener {
-                if (item.tab >= 0) showTab(item.tab)
-                else startActivity(Intent(this, SettingsActivity::class.java))
-            }
+            item.cell.setOnClickListener { showTab(item.tab) }
         }
         dockCari.setOnClickListener { focusSearch() }
 
@@ -179,8 +181,8 @@ class MainActivity : AppCompatActivity() {
         showTab(selectedTab)
         loadContent()
         // v1.1.6: konten auto-update — tiap buka aplikasi (throttle 30 mnt)
-        // langsung cek manifest GitHub dan unduh yang baru, tanpa ketuk
-        // tombol Perbarui. Gagal (tanpa internet) = diam, konten lama
+        // langsung cek manifest GitHub dan unduh yang baru, tanpa aksi
+        // pengguna. Gagal (tanpa internet) = diam, konten lama
         // tetap bisa dibaca.
         checkForAppUpdate()
         autoSyncContent()
@@ -219,6 +221,8 @@ class MainActivity : AppCompatActivity() {
         newsSubtitle.setTextColor(palette.muted)
         komikTitle.setTextColor(palette.ink)
         komikSubtitle.setTextColor(palette.muted)
+        koleksiTitle.setTextColor(palette.ink)
+        koleksiSubtitle.setTextColor(palette.muted)
         continueTitle.setTextColor(palette.ink)
         continueMeta.setTextColor(palette.muted)
         searchInput.setTextColor(palette.ink)
@@ -237,6 +241,7 @@ class MainActivity : AppCompatActivity() {
         cerpenTab.visibility = if (tab == 0) View.VISIBLE else View.GONE
         newsTab.visibility = if (tab == 1) View.VISIBLE else View.GONE
         komikTab.visibility = if (tab == 2) View.VISIBLE else View.GONE
+        koleksiTab.visibility = if (tab == 3) View.VISIBLE else View.GONE
         dockItems.forEach { styleDockItem(it, it.tab == tab, palette) }
     }
 
@@ -506,10 +511,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Matikan kedua tombol sync selama satu proses berjalan. */
+    /** Tandai satu proses sync sedang berjalan (ganti tombol yang dihapus). */
     private fun setSyncBusy(busy: Boolean) {
-        refreshButton.isEnabled = !busy
-        downloadAllButton.isEnabled = !busy
+        syncBusy = busy
     }
 
     /** Tampilkan progres sync: bilah determinan bila total diketahui. */
@@ -535,13 +539,13 @@ class MainActivity : AppCompatActivity() {
     // ============ AUTO-UPDATE KONTEN (v1.1.6) ============
     // Tiap buka aplikasi / kembali ke aplikasi: cek manifest GitHub dan
     // unduh konten baru (cerpen/berita/komik) secara otomatis, tanpa
-    // ketuk tombol Perbarui. Throttle maks 1x per 30 menit (dicatat di
-    // prefs yang sama dengan cek update aplikasi). Fail-open: tanpa
-    // internet atau gagal = diam, konten lama tetap bisa dibaca. Toast
-    // HANYA bila ada konten baru — bila sudah terbaru, diam.
+    // aksi pengguna. Throttle maks 1x per 30 menit (dicatat di prefs
+    // yang sama dengan cek update aplikasi). Fail-open: tanpa internet
+    // atau gagal = diam, konten lama tetap bisa dibaca. Toast HANYA
+    // bila ada konten baru — bila sudah terbaru, diam.
     private fun autoSyncContent() {
         // Jangan tumpuk dengan sync manual yang sedang berjalan.
-        if (!refreshButton.isEnabled) return
+        if (syncBusy) return
         val now = System.currentTimeMillis()
         val last = updatePrefs.getLong("last_auto_sync_ms", 0)
         if (now - last < 30 * 60 * 1000L) return
@@ -560,16 +564,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncNow() {
-        // Cegah sync ganda (tombol + tarik bersamaan).
-        if (!refreshButton.isEnabled) return
+        // Cegah sync ganda (auto + tarik bersamaan).
+        if (syncBusy) return
         setSyncBusy(true)
-        refreshButton.text = "Memperbarui..."
         swipeRefresh.isRefreshing = true
         DataManager.syncFromGithub(this, onProgress = { done, total, label ->
             showSyncProgress(done, total, label)
         }) { changed ->
             setSyncBusy(false)
-            refreshButton.text = "Perbarui Konten"
             swipeRefresh.isRefreshing = false
             hideSyncProgress()
             if (changed) {
@@ -577,42 +579,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "Sudah terbaru / tidak ada internet", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    /**
-     * Unduh SEMUA konten untuk dibaca offline (cover cerpen, cover +
-     * panel komik, gambar berita) dengan progres + ringkasan di akhir,
-     * supaya tidak ada lagi cover/panel kosong saat tanpa internet.
-     */
-    private fun downloadAll() {
-        if (!refreshButton.isEnabled) return
-        setSyncBusy(true)
-        downloadAllButton.text = "Mengunduh..."
-        swipeRefresh.isRefreshing = true
-        DataManager.downloadAllForOffline(this, onProgress = { done, total, label ->
-            showSyncProgress(done, total, label)
-        }) { result ->
-            setSyncBusy(false)
-            downloadAllButton.text = "Unduh Semua untuk Offline"
-            swipeRefresh.isRefreshing = false
-            hideSyncProgress()
-            loadContent()
-            if (result.downloaded == 0 && result.alreadyHad == 0) {
-                Toast.makeText(this, "Tidak ada internet / daftar konten gagal diunduh", Toast.LENGTH_SHORT).show()
-            } else if (result.failed == 0) {
-                Toast.makeText(
-                    this,
-                    "Semua konten sudah offline (${result.downloaded} baru, ${result.alreadyHad} sudah ada)",
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                Toast.makeText(
-                    this,
-                    "${result.downloaded} file diunduh, ${result.failed} gagal — coba lagi saat sinyal bagus",
-                    Toast.LENGTH_LONG
-                ).show()
             }
         }
     }

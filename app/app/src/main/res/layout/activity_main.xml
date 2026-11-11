@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v1.1.8: root jadi FrameLayout — SwipeRefreshLayout + ScrollView
-     lama tetap, ditambah bottom dock kaca (pill mengambang + bubble
-     Cari) sebagai overlay di bawah. 3 tab atas + tombol Pengaturan
-     atas DIGANTI dock. Tab Cerpen = UI cerpen v1.0 (cari, filter genre,
-     lanjutkan membaca, riwayat, bookmark, semua cerpen). Tab Berita =
-     hanya daftar berita. Tab Komik = hanya daftar komik.
-     Tombol "Perbarui Konten" + footer tetap di bawah (berlaku tiga tab). -->
+<!-- v1.1.10: 4 tab (Cerpen/Berita/Komik/Koleksi) + dock bawah.
+     Tab Cerpen = UI cerpen v1.0 (cari, filter genre, lanjutkan
+     membaca, semua cerpen). Tab Koleksi = riwayat baca + bookmark +
+     tombol Pengaturan (ala Library YouTube). Tab Berita = hanya
+     daftar berita. Tab Komik = hanya daftar komik. Sync manual
+     hanya lewat pull-to-refresh; tombol Perbarui + Unduh Semua
+     dihapus. Footer tetap di bawah. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -147,58 +147,6 @@
                     android:textColor="@color/white" />
             </LinearLayout>
 
-            <!-- Riwayat Baca -->
-            <LinearLayout
-                android:id="@+id/history_section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/history_title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:text="Riwayat Baca"
-                    android:textColor="@color/ink"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/history_list"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:nestedScrollingEnabled="false" />
-            </LinearLayout>
-
-            <!-- Ditandai (Bookmark) -->
-            <LinearLayout
-                android:id="@+id/bookmark_section"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <TextView
-                    android:id="@+id/bookmark_title"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:text="Ditandai 🔖"
-                    android:textColor="@color/ink"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/bookmark_list"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:nestedScrollingEnabled="false" />
-            </LinearLayout>
-
             <!-- Semua Cerpen -->
             <TextView
                 android:id="@+id/all_cerpen_title"
@@ -281,7 +229,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Gambar komik diunduh saat Perbarui Konten / Unduh Semua"
+                android:text="Gambar komik diunduh otomatis / saat tarik ke bawah untuk refresh"
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
 
@@ -293,17 +241,95 @@
                 android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
-        <Button
-            android:id="@+id/refresh_button"
+        <!-- ============ TAB KOLEKSI ============ -->
+        <LinearLayout
+            android:id="@+id/koleksi_tab"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="8dp"
-            android:text="Perbarui Konten"
-            android:textColor="@color/white" />
+            android:orientation="vertical"
+            android:visibility="gone">
 
-        <!-- v1.1.4: progres sync/unduh (bilah + teks tahap) + tombol
-             unduh-semua untuk dibaca offline. -->
+            <TextView
+                android:id="@+id/koleksi_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="Koleksi"
+                android:textColor="@color/ink"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/koleksi_subtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Riwayat baca dan yang ditandai — semua tersimpan di perangkat"
+                android:textColor="@color/muted"
+                android:textSize="13sp" />
+
+            <Button
+                android:id="@+id/koleksi_settings_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="⚙ Pengaturan"
+                android:textColor="@color/white" />
+
+            <!-- Riwayat Baca -->
+            <LinearLayout
+                android:id="@+id/history_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/history_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="Riwayat Baca"
+                    android:textColor="@color/ink"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/history_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:nestedScrollingEnabled="false" />
+            </LinearLayout>
+
+            <!-- Ditandai (Bookmark) -->
+            <LinearLayout
+                android:id="@+id/bookmark_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/bookmark_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="24dp"
+                    android:text="Ditandai 🔖"
+                    android:textColor="@color/ink"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/bookmark_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:nestedScrollingEnabled="false" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- v1.1.4: progres sync/unduh (bilah + teks tahap) — dipakai pull-to-refresh. -->
         <ProgressBar
             android:id="@+id/sync_progress_bar"
             style="?android:attr/progressBarStyleHorizontal"
@@ -322,15 +348,6 @@
             android:textColor="@color/muted"
             android:textSize="13sp"
             android:visibility="gone" />
-
-        <Button
-            android:id="@+id/download_all_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="8dp"
-            android:text="Unduh Semua untuk Offline"
-            android:textColor="@color/white" />
 
         <!-- v1.2: angka versi DIHAPUS dari layout — diisi runtime dari
              BuildConfig.VERSION_NAME (MainActivity) agar selalu benar. -->
@@ -455,7 +472,7 @@
             </LinearLayout>
 
             <LinearLayout
-                android:id="@+id/dock_settings"
+                android:id="@+id/dock_koleksi"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
@@ -466,17 +483,17 @@
                 android:orientation="vertical">
 
                 <TextView
-                    android:id="@+id/dock_settings_icon"
+                    android:id="@+id/dock_koleksi_icon"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⚙️"
+                    android:text="👤"
                     android:textSize="20sp" />
 
                 <TextView
-                    android:id="@+id/dock_settings_label"
+                    android:id="@+id/dock_koleksi_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Pengaturan"
+                    android:text="Koleksi"
                     android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
