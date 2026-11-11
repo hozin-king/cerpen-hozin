@@ -518,6 +518,27 @@ object ProgressStore {
         )
     }
 
+    // ---- Progres baca komik (v1.1.13): satu posisi terakhir per komik ----
+    // Kunci: "last_komik_<id>" = "episode|panel" (panel 0-based, sama
+    // pola penyimpanan dengan progres cerbung di atas).
+    data class LastKomikRead(val komikId: String, val episode: Int, val panel: Int)
+
+    fun saveLastKomik(context: Context, komikId: String, episode: Int, panel: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("last_komik_$komikId", "$episode|$panel")
+            .apply()
+    }
+
+    fun getLastKomik(context: Context, komikId: String): LastKomikRead? {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("last_komik_$komikId", null) ?: return null
+        val parts = raw.split("|")
+        if (parts.size != 2) return null
+        val episode = parts[0].toIntOrNull() ?: return null
+        val panel = parts[1].toIntOrNull() ?: return null
+        return LastKomikRead(komikId, episode, panel)
+    }
+
     fun markDone(context: Context, cerpenId: String, season: Int, episode: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("done_${cerpenId}_${season}_$episode", true)

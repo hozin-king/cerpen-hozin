@@ -29,6 +29,7 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var episodeList: RecyclerView
     private lateinit var loading: ProgressBar
     private lateinit var downloadButton: Button
+    private lateinit var continueButton: Button
     private lateinit var offlineIcon: ImageView
     private lateinit var offlineLabel: TextView
 
@@ -50,6 +51,7 @@ class DetailActivity : AppCompatActivity() {
         episodeList = findViewById(R.id.episode_list)
         loading = findViewById(R.id.loading)
         downloadButton = findViewById(R.id.detail_download_button)
+        continueButton = findViewById(R.id.detail_continue_button)
         offlineIcon = findViewById(R.id.detail_offline_icon)
         offlineLabel = findViewById(R.id.detail_offline_label)
 
@@ -87,6 +89,7 @@ class DetailActivity : AppCompatActivity() {
             val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
             val scale = ThemeHelper.fontScale(this)
             episodeList.adapter = EpisodeAdapter(it, { season, ep -> openReader(it.id, season, ep.no) }, palette, scale)
+            refreshContinueButton()
         }
     }
 
@@ -116,7 +119,30 @@ class DetailActivity : AppCompatActivity() {
         }
         episodeList.adapter = EpisodeAdapter(c, { season, ep -> openReader(c.id, season, ep.no) }, ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this))
         refreshDownloadState()
+        refreshContinueButton()
         downloadButton.setOnClickListener { downloadCover() }
+    }
+
+    /** v1.1.13: tombol Lanjutkan bila progres terakhir adalah cerita ini.
+     *  Pakai data yang sama dengan kartu "Lanjutkan Membaca" di tab Cerbung
+     *  (ProgressStore.getLast); Reader sudah memulihkan posisi scroll
+     *  episode itu sendiri, jadi cukup buka episode-nya. */
+    private fun refreshContinueButton() {
+        val c = cerpen ?: return
+        val last = ProgressStore.getLast(this)
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val ep = last?.takeIf { it.cerpenId == c.id }?.let { c.episode(it.season, it.episode) }
+        if (last == null || ep == null) {
+            continueButton.visibility = View.GONE
+            return
+        }
+        val seasonPart = if (last.season > 1) "Season ${last.season} · " else ""
+        val titlePart = if (ep.judul.isNotBlank()) ": ${ep.judul}" else ""
+        continueButton.text = "▶ Lanjutkan · ${seasonPart}Episode ${last.episode}$titlePart"
+        continueButton.backgroundTintList = ColorStateList.valueOf(palette.accent)
+        continueButton.setTextColor(palette.onAccent)
+        continueButton.visibility = View.VISIBLE
+        continueButton.setOnClickListener { openReader(c.id, last.season, last.episode) }
     }
 
     /** v1.1.5: tombol Unduh cover vs ikon sudah-offline. */
