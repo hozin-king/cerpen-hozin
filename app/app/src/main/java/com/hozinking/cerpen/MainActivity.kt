@@ -7,9 +7,11 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.View
+import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -32,7 +34,9 @@ class MainActivity : AppCompatActivity() {
     // v1.1.10: bottom dock kaca — satu sel = ikon + label; tab 3 = Koleksi.
     private data class DockItem(val cell: View, val icon: TextView, val label: TextView, val tab: Int)
     private lateinit var dockBar: LinearLayout
+    private lateinit var dockBarBg: GlassView
     private lateinit var dockCari: View
+    private lateinit var dockCariBg: GlassView
     private lateinit var dockCariIcon: TextView
     private lateinit var dockItems: List<DockItem>
     private lateinit var cerpenTab: LinearLayout
@@ -57,6 +61,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchNewsInput: EditText
     private lateinit var searchKomikInput: EditText
     private lateinit var genreRow: LinearLayout
+    private lateinit var genreScroll: HorizontalScrollView
+    private lateinit var typeRow: LinearLayout
     private lateinit var cerpenList: RecyclerView
     private lateinit var historySection: LinearLayout
     private lateinit var historyList: RecyclerView
@@ -76,6 +82,8 @@ class MainActivity : AppCompatActivity() {
     private var newsQuery: String = ""
     private var komikQuery: String = ""
     private var selectedGenre: String = "Semua"
+    /** Filter jenis daftar Cerbung (v1.1.12): Semua / Cerbung / Cergam. */
+    private var selectedType: String = "Semua"
     private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik, 3 = Koleksi
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
     private var syncBusy = false
@@ -110,7 +118,9 @@ class MainActivity : AppCompatActivity() {
         appFooter = findViewById(R.id.app_footer)
         mainScroll = findViewById(R.id.main_scroll)
         dockBar = findViewById(R.id.dock_bar)
+        dockBarBg = findViewById(R.id.dock_bar_bg)
         dockCari = findViewById(R.id.dock_cari)
+        dockCariBg = findViewById(R.id.dock_cari_bg)
         dockCariIcon = findViewById(R.id.dock_cari_icon)
         dockItems = listOf(
             DockItem(findViewById(R.id.dock_cerbung), findViewById(R.id.dock_cerbung_icon), findViewById(R.id.dock_cerbung_label), 0),
@@ -140,6 +150,12 @@ class MainActivity : AppCompatActivity() {
         searchNewsInput = findViewById(R.id.search_news_input)
         searchKomikInput = findViewById(R.id.search_komik_input)
         genreRow = findViewById(R.id.genre_row)
+        genreScroll = findViewById(R.id.genre_scroll)
+        typeRow = findViewById(R.id.type_row)
+        // v1.1.12: latar kaca dock menangkap konten di baliknya.
+        dockBarBg.backdropView = mainScroll
+        dockCariBg.backdropView = mainScroll
+        buildTypeChips()
         cerpenList = findViewById(R.id.cerpen_list)
         historySection = findViewById(R.id.history_section)
         historyList = findViewById(R.id.history_list)
@@ -205,6 +221,18 @@ class MainActivity : AppCompatActivity() {
         }
         dockCari.setOnClickListener { focusSearch() }
 
+        // v1.1.12: bubble Cari muncul dengan morphing — scale + overshoot,
+        // menempel ke tepi pill (leher cair didekati overlap, tanpa path).
+        dockCari.scaleX = 0.5f
+        dockCari.scaleY = 0.5f
+        dockCari.translationY = 28f * resources.displayMetrics.density
+        dockCari.animate()
+            .scaleX(1f).scaleY(1f).translationY(0f)
+            .setStartDelay(150)
+            .setDuration(450)
+            .setInterpolator(OvershootInterpolator(2f))
+            .start()
+
         applyThemeAndFont()
         showTab(selectedTab)
         loadContent()
@@ -233,6 +261,7 @@ class MainActivity : AppCompatActivity() {
         if (komikData.isNotEmpty()) {
             applyKomikList()
         }
+        refreshGlass()
     }
 
     /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
@@ -266,10 +295,18 @@ class MainActivity : AppCompatActivity() {
         searchKomikInput.setHintTextColor(palette.muted)
         searchKomikInput.background = ThemeHelper.cardBackground(this, palette)
         continueSection.background = ThemeHelper.cardBackground(this, palette)
-        dockBar.background = ThemeHelper.dockBackground(this, palette)
-        dockCari.background = ThemeHelper.bubbleBackground(this, palette)
+        // v1.1.12: dock + bubble digambar GlassView (blur latar + tint +
+        // stroke); dockBar/dockCari sendiri transparan.
+        dockBarBg.setGlass(palette, GlassView.SHAPE_PILL)
+        dockCariBg.setGlass(palette, GlassView.SHAPE_OVAL)
         dockCariIcon.setTextColor(palette.onAccent)
         showTab(selectedTab)
+    }
+
+    /** Minta tangkap ulang blur kaca (saat konten berubah). */
+    private fun refreshGlass() {
+        dockBarBg.scheduleRefresh()
+        dockCariBg.scheduleRefresh()
     }
 
     private fun showTab(tab: Int) {
@@ -361,6 +398,7 @@ class MainActivity : AppCompatActivity() {
                 applyKomikList()
                 showContinueReading()
                 showHistoryAndBookmarks()
+                refreshGlass()
             }
         }.start()
     }
@@ -442,19 +480,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Chip filter jenis (v1.1.12): Semua / Cerbung / Cergam. Genre hanya
+     * memfilter cerpen — saat jenis = Cergam, baris genre disembunyikan. */
+    private fun buildTypeChips() {
+        typeRow.removeAllViews()
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        for (t in listOf("Semua", "Cerbung", "Cergam")) {
+            val chip = Button(this).apply {
+                text = t
+                textSize = 13f
+                isSingleLine = true
+                minimumWidth = 0
+                minimumHeight = 0
+                val d = resources.displayMetrics.density
+                setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
+                setTextColor(
+                    if (t == selectedType) palette.onAccent
+                    else palette.accent
+                )
+                setBackgroundColor(
+                    if (t == selectedType) palette.accent
+                    else palette.card
+                )
+                val params = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+                params.marginEnd = 8
+                layoutParams = params
+                setOnClickListener {
+                    selectedType = t
+                    buildTypeChips()
+                    applyCerpenFilter()
+                }
+            }
+            typeRow.addView(chip)
+        }
+    }
+
+    /** Daftar Cerbung campur cerpen + cergam (v1.1.12), terbaru dulu. */
     private fun applyCerpenFilter() {
         val q = query.lowercase()
-        val filtered = cerpenData.filter { c ->
+        val cerpenItems = if (selectedType == "Cergam") emptyList() else cerpenData.filter { c ->
             (selectedGenre == "Semua" || c.genre == selectedGenre) &&
                 (q.isEmpty() || c.judul.lowercase().contains(q) || c.genre.lowercase().contains(q))
-        }
+        }.map { CerbungItem.CerpenItem(it) }
+        val komikItems = if (selectedType == "Cerbung") emptyList() else komikData.filter { k ->
+            q.isEmpty() || k.judul.lowercase().contains(q) || k.genre.lowercase().contains(q)
+        }.map { CerbungItem.CergamItem(it) }
+        val mixed = (cerpenItems + komikItems).sortedWith(
+            compareByDescending<CerbungItem> { it.date }
+                .thenByDescending { ItemDates.trailingNumber(it.id) }
+        )
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
-        cerpenList.adapter = CerpenAdapter(
-            filtered, { openDetail(it) }, palette, scale,
-            onDownload = { c, pos -> downloadCerpen(c, pos) },
-            newestId = newestCerpenId
+        cerpenList.adapter = CerbungAdapter(
+            mixed, { openDetail(it) }, { openKomikDetail(it) }, palette, scale,
+            onCerpenDownload = { c, pos -> downloadCerpen(c, pos) },
+            onKomikDownload = { k, pos -> downloadKomik(k, pos) },
+            newestCerpenId = newestCerpenId,
+            newestKomikId = newestKomikId
         )
+        genreScroll.visibility = if (selectedType == "Cergam") View.GONE else View.VISIBLE
     }
 
     private fun showContinueReading() {

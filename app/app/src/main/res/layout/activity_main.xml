@@ -86,6 +86,7 @@
 
             <!-- Filter genre -->
             <HorizontalScrollView
+                android:id="@+id/genre_scroll"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
@@ -93,6 +94,20 @@
 
                 <LinearLayout
                     android:id="@+id/genre_row"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+
+            <!-- v1.1.12: filter jenis — Cerbung / Cergam (diisi runtime). -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/type_row"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
@@ -408,6 +423,13 @@
         android:layout_marginBottom="12dp"
         android:paddingTop="18dp">
 
+        <!-- v1.1.12: latar kaca pill — GlassView menggambar blur latar
+             + tint + stroke; dock_bar di atasnya transparan. -->
+        <com.hozinking.cerpen.GlassView
+            android:id="@+id/dock_bar_bg"
+            android:layout_width="match_parent"
+            android:layout_height="60dp" />
+
         <LinearLayout
             android:id="@+id/dock_bar"
             android:layout_width="match_parent"
@@ -534,6 +556,12 @@
             android:clickable="true"
             android:elevation="12dp"
             android:focusable="true">
+
+            <!-- v1.1.12: latar kaca bubble (oval) — ikon di atasnya tajam. -->
+            <com.hozinking.cerpen.GlassView
+                android:id="@+id/dock_cari_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent" />
 
             <TextView
                 android:id="@+id/dock_cari_icon"
