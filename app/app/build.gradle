@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 17
-        versionName = "1.1.15"
+        versionCode = 12
+        versionName = "1.1.10"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya

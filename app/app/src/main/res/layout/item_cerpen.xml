@@ -100,24 +100,6 @@
                 android:textStyle="bold"
                 android:visibility="gone" />
 
-            <!-- v1.1.12: badge jenis — tampil hanya di daftar campur
-                 Cerbung bila baris ini cergam (bukan cerpen). -->
-            <TextView
-                android:id="@+id/badge_cergam"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/number_bg"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                android:paddingTop="2dp"
-                android:paddingBottom="2dp"
-                android:text="Cergam"
-                android:textColor="@color/white"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
             <Button
                 android:id="@+id/download_button"
                 android:layout_width="wrap_content"

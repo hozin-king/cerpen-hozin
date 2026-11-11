@@ -23,7 +23,6 @@ class KomikReaderActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_KOMIK_ID = "komik_id"
         const val EXTRA_EPISODE = "episode"
-        const val EXTRA_PANEL = "panel"
     }
 
     private lateinit var root: View
@@ -35,12 +34,10 @@ class KomikReaderActivity : AppCompatActivity() {
 
     private var komikId: String = ""
     private var episodeNo: Int = 1
-    private var startPanel: Int = 0
     private var currentKomik: Komik? = null
     private var currentEpisode: KomikEpisode? = null
     private var downloading = false
     private var downloadButton: Button? = null
-    private val panelViews = ArrayList<View>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,7 +55,6 @@ class KomikReaderActivity : AppCompatActivity() {
         val episodeNoExtra = intent.getIntExtra(EXTRA_EPISODE, 1)
         komikId = komikIdExtra
         episodeNo = episodeNoExtra
-        startPanel = intent.getIntExtra(EXTRA_PANEL, 0)
 
         applyTheme()
         loadEpisode()
@@ -91,24 +87,6 @@ class KomikReaderActivity : AppCompatActivity() {
         applyTheme()
     }
 
-    override fun onPause() {
-        super.onPause()
-        saveProgress()
-    }
-
-    /** v1.1.13: simpan episode + panel paling atas yang terlihat saat
-     *  keluar reader (dipakai tombol Lanjutkan di halaman detail). */
-    private fun saveProgress() {
-        currentEpisode ?: return
-        if (panelViews.isEmpty()) return
-        val y = scrollView.scrollY
-        var idx = 0
-        for (i in panelViews.indices) {
-            if (panelViews[i].top <= y) idx = i
-        }
-        ProgressStore.saveLastKomik(this, komikId, episodeNo, idx)
-    }
-
     private fun bind(komik: Komik, episode: KomikEpisode, bitmaps: List<Bitmap?>) {
         currentKomik = komik
         currentEpisode = episode
@@ -119,7 +97,6 @@ class KomikReaderActivity : AppCompatActivity() {
         val scale = ThemeHelper.fontScale(this)
         val d = resources.displayMetrics.density
         container.removeAllViews()
-        panelViews.clear()
         downloadButton = null
         // v1.1.5: bila ada panel yang belum terunduh, tampilkan tombol
         // "Unduh episode ini" di atas panel (bukan pesan jalan buntu).
@@ -150,7 +127,6 @@ class KomikReaderActivity : AppCompatActivity() {
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 contentDescription = "Panel ${index + 1}"
             }
-            panelViews.add(imageView)
             val bmp = bitmaps.getOrNull(index)
             if (bmp != null) {
                 imageView.setImageBitmap(bmp)
@@ -204,14 +180,7 @@ class KomikReaderActivity : AppCompatActivity() {
             }
             container.addView(teksView)
         }
-        // v1.1.13: buka di panel terakhir bila diminta (tombol Lanjutkan);
-        // bila tidak, mulai dari atas seperti biasa.
-        val target = startPanel.coerceIn(0, (episode.panels.size - 1).coerceAtLeast(0))
-        if (target > 0) {
-            scrollView.post { scrollView.scrollTo(0, panelViews.getOrNull(target)?.top ?: 0) }
-        } else {
-            scrollView.scrollTo(0, 0)
-        }
+        scrollView.scrollTo(0, 0)
     }
 
     /** v1.1.5: unduh episode ini, lalu muat ulang panel. */
