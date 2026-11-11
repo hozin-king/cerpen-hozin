@@ -87,4 +87,34 @@ object ThemeHelper {
             cornerRadius = 12f * d
         }
     }
+
+    /**
+     * Background bottom dock kaca (v1.1.8): warna kartu tembus pandang
+     * + border + radius penuh. Tanpa blur live — kaca dicapai dari
+     * translucency statis, jadi tidak ada biaya per-frame.
+     */
+    fun dockBackground(context: Context, palette: ThemePalette): GradientDrawable {
+        val d = context.resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(translucent(palette.card, 0.66f))
+            setStroke((1f * d).toInt(), palette.cardBorder)
+            cornerRadius = 30f * d
+        }
+    }
+
+    /** Background bubble Cari: lingkaran accent + garis tepi terang tipis. */
+    fun bubbleBackground(context: Context, palette: ThemePalette): GradientDrawable {
+        val d = context.resources.displayMetrics.density
+        return GradientDrawable().apply {
+            shape = GradientDrawable.OVAL
+            setColor(palette.accent)
+            setStroke((1.5f * d).toInt(), Color.argb(110, 255, 255, 255))
+        }
+    }
+
+    private fun translucent(color: Int, alpha: Float): Int {
+        val a = (255 * alpha).toInt().coerceIn(0, 255)
+        return Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
+    }
 }

@@ -7,10 +7,12 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -26,10 +28,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appTitle: TextView
     private lateinit var appSubtitle: TextView
     private lateinit var appFooter: TextView
-    private lateinit var settingsButton: Button
-    private lateinit var tabCerpenButton: Button
-    private lateinit var tabBeritaButton: Button
-    private lateinit var tabKomikButton: Button
+    private lateinit var mainScroll: ScrollView
+    // v1.1.8: bottom dock kaca — satu sel = ikon + label; tab -1 (Pengaturan)
+    // tidak pernah terpilih (selalu warna muted).
+    private data class DockItem(val cell: View, val icon: TextView, val label: TextView, val tab: Int)
+    private lateinit var dockBar: LinearLayout
+    private lateinit var dockCari: View
+    private lateinit var dockCariIcon: TextView
+    private lateinit var dockItems: List<DockItem>
     private lateinit var cerpenTab: LinearLayout
     private lateinit var newsTab: LinearLayout
     private lateinit var komikTab: LinearLayout
@@ -95,10 +101,16 @@ class MainActivity : AppCompatActivity() {
         appTitle = findViewById(R.id.app_title)
         appSubtitle = findViewById(R.id.app_subtitle)
         appFooter = findViewById(R.id.app_footer)
-        settingsButton = findViewById(R.id.main_settings_button)
-        tabCerpenButton = findViewById(R.id.tab_cerpen_button)
-        tabBeritaButton = findViewById(R.id.tab_berita_button)
-        tabKomikButton = findViewById(R.id.tab_komik_button)
+        mainScroll = findViewById(R.id.main_scroll)
+        dockBar = findViewById(R.id.dock_bar)
+        dockCari = findViewById(R.id.dock_cari)
+        dockCariIcon = findViewById(R.id.dock_cari_icon)
+        dockItems = listOf(
+            DockItem(findViewById(R.id.dock_cerbung), findViewById(R.id.dock_cerbung_icon), findViewById(R.id.dock_cerbung_label), 0),
+            DockItem(findViewById(R.id.dock_berita), findViewById(R.id.dock_berita_icon), findViewById(R.id.dock_berita_label), 1),
+            DockItem(findViewById(R.id.dock_komik), findViewById(R.id.dock_komik_icon), findViewById(R.id.dock_komik_label), 2),
+            DockItem(findViewById(R.id.dock_settings), findViewById(R.id.dock_settings_icon), findViewById(R.id.dock_settings_label), -1)
+        )
         cerpenTab = findViewById(R.id.cerpen_tab)
         newsTab = findViewById(R.id.news_tab)
         komikTab = findViewById(R.id.komik_tab)
@@ -155,12 +167,13 @@ class MainActivity : AppCompatActivity() {
 
         refreshButton.setOnClickListener { syncNow() }
         downloadAllButton.setOnClickListener { downloadAll() }
-        settingsButton.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        dockItems.forEach { item ->
+            item.cell.setOnClickListener {
+                if (item.tab >= 0) showTab(item.tab)
+                else startActivity(Intent(this, SettingsActivity::class.java))
+            }
         }
-        tabCerpenButton.setOnClickListener { showTab(0) }
-        tabBeritaButton.setOnClickListener { showTab(1) }
-        tabKomikButton.setOnClickListener { showTab(2) }
+        dockCari.setOnClickListener { focusSearch() }
 
         applyThemeAndFont()
         showTab(selectedTab)
@@ -212,6 +225,9 @@ class MainActivity : AppCompatActivity() {
         searchInput.setHintTextColor(palette.muted)
         searchInput.background = ThemeHelper.cardBackground(this, palette)
         continueSection.background = ThemeHelper.cardBackground(this, palette)
+        dockBar.background = ThemeHelper.dockBackground(this, palette)
+        dockCari.background = ThemeHelper.bubbleBackground(this, palette)
+        dockCariIcon.setTextColor(palette.onAccent)
         showTab(selectedTab)
     }
 
@@ -221,18 +237,23 @@ class MainActivity : AppCompatActivity() {
         cerpenTab.visibility = if (tab == 0) View.VISIBLE else View.GONE
         newsTab.visibility = if (tab == 1) View.VISIBLE else View.GONE
         komikTab.visibility = if (tab == 2) View.VISIBLE else View.GONE
-        styleTabButton(tabCerpenButton, tab == 0, palette)
-        styleTabButton(tabBeritaButton, tab == 1, palette)
-        styleTabButton(tabKomikButton, tab == 2, palette)
+        dockItems.forEach { styleDockItem(it, it.tab == tab, palette) }
     }
 
-    private fun styleTabButton(button: Button, selected: Boolean, palette: ThemePalette) {
-        if (selected) {
-            button.setBackgroundColor(palette.accent)
-            button.setTextColor(palette.onAccent)
-        } else {
-            button.setBackgroundColor(palette.card)
-            button.setTextColor(palette.accent)
+    private fun styleDockItem(item: DockItem, selected: Boolean, palette: ThemePalette) {
+        val color = if (selected) palette.accent else palette.muted
+        item.icon.setTextColor(color)
+        item.label.setTextColor(color)
+    }
+
+    /** Bubble Cari: pindah ke tab Cerpen, scroll ke atas, fokus kolom cari. */
+    private fun focusSearch() {
+        showTab(0)
+        mainScroll.post {
+            mainScroll.smoothScrollTo(0, 0)
+            searchInput.requestFocus()
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 

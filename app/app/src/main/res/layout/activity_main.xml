@@ -1,16 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v1.2: root diganti jadi SwipeRefreshLayout (pull-to-refresh) yang
-     membungkus ScrollView lama — satu tempat, berlaku tiga tab.
-     Tab Cerpen = UI cerpen v1.0 (cari, filter genre, lanjutkan membaca,
-     riwayat, bookmark, semua cerpen). Tab Berita = hanya daftar berita.
-     Tab Komik = hanya daftar komik.
+<!-- v1.1.8: root jadi FrameLayout — SwipeRefreshLayout + ScrollView
+     lama tetap, ditambah bottom dock kaca (pill mengambang + bubble
+     Cari) sebagai overlay di bawah. 3 tab atas + tombol Pengaturan
+     atas DIGANTI dock. Tab Cerpen = UI cerpen v1.0 (cari, filter genre,
+     lanjutkan membaca, riwayat, bookmark, semua cerpen). Tab Berita =
+     hanya daftar berita. Tab Komik = hanya daftar komik.
      Tombol "Perbarui Konten" + footer tetap di bawah (berlaku tiga tab). -->
-<androidx.swiperefreshlayout.widget.SwipeRefreshLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+<androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     android:id="@+id/swipe_refresh"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
     <ScrollView
+        android:id="@+id/main_scroll"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@color/paper"
@@ -21,7 +27,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingLeft="16dp"
+        android:paddingTop="16dp"
+        android:paddingRight="16dp"
+        android:paddingBottom="104dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -37,13 +46,6 @@
                 android:textColor="@color/ink"
                 android:textSize="26sp"
                 android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/main_settings_button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="⚙ Pengaturan"
-                android:textColor="@color/white" />
         </LinearLayout>
 
         <TextView
@@ -62,40 +64,6 @@
             android:layout_gravity="center"
             android:layout_marginTop="24dp"
             android:visibility="gone" />
-
-        <!-- Tab Cerpen | Berita | Komik -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/tab_cerpen_button"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Cerbung"
-                android:textColor="@color/white" />
-
-            <Button
-                android:id="@+id/tab_berita_button"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="Berita"
-                android:textColor="@color/white" />
-
-            <Button
-                android:id="@+id/tab_komik_button"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="Komik"
-                android:textColor="@color/white" />
-        </LinearLayout>
 
         <!-- ============ TAB CERPEN ============ -->
         <LinearLayout
@@ -378,3 +346,157 @@
     </LinearLayout>
     </ScrollView>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- ============ BOTTOM DOCK KACA (v1.1.8) ============ -->
+    <!-- Pill mengambang + bubble Cari bundar menonjol 18dp ke atas.
+         Background pill + bubble diisi runtime dari ThemeHelper agar
+         ikut tema (terang/sepia/malam) — di XML sengaja tanpa
+         background. Tanpa blur live: kaca = warna kartu tembus pandang
+         + stroke tipis + elevation (statis, tanpa biaya per-frame). -->
+    <FrameLayout
+        android:id="@+id/dock_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="12dp"
+        android:paddingTop="18dp">
+
+        <LinearLayout
+            android:id="@+id/dock_bar"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:elevation="8dp"
+            android:orientation="horizontal">
+
+            <LinearLayout
+                android:id="@+id/dock_cerbung"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/dock_cerbung_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📖"
+                    android:textSize="20sp" />
+
+                <TextView
+                    android:id="@+id/dock_cerbung_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cerbung"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/dock_berita"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/dock_berita_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📰"
+                    android:textSize="20sp" />
+
+                <TextView
+                    android:id="@+id/dock_berita_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Berita"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <!-- Sel kosong: tempat bubble Cari menumpang di atas pill. -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1" />
+
+            <LinearLayout
+                android:id="@+id/dock_komik"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/dock_komik_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📚"
+                    android:textSize="20sp" />
+
+                <TextView
+                    android:id="@+id/dock_komik_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Komik"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/dock_settings"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/dock_settings_icon"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚙️"
+                    android:textSize="20sp" />
+
+                <TextView
+                    android:id="@+id/dock_settings_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Pengaturan"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/dock_cari"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center_horizontal"
+            android:clickable="true"
+            android:elevation="12dp"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/dock_cari_icon"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="🔍"
+                android:textSize="24sp" />
+        </FrameLayout>
+    </FrameLayout>
+</FrameLayout>
