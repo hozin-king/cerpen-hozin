@@ -1,11 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- v1.1.10: 4 tab (Cerpen/Berita/Komik/Koleksi) + dock bawah.
-     Tab Cerpen = UI cerpen v1.0 (cari, filter genre, lanjutkan
-     membaca, semua cerpen). Tab Koleksi = riwayat baca + bookmark +
-     tombol Pengaturan (ala Library YouTube). Tab Berita = hanya
-     daftar berita. Tab Komik = hanya daftar komik. Sync manual
-     hanya lewat pull-to-refresh; tombol Perbarui + Unduh Semua
-     dihapus. Footer tetap di bawah. -->
+<!-- v1.1.11: kolom cari juga di Berita + Komik; bubble Cari fokus
+     ke kolom cari tab aktif; ketuk-ulang tab aktif = scroll ke atas
+     + refresh (kecuali Koleksi: scroll saja). -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -198,6 +194,22 @@
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
 
+            <!-- v1.1.11: cari berita (judul/sumber), gaya = search Cerpen. -->
+            <EditText
+                android:id="@+id/search_news_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/card_bg"
+                android:hint="Cari judul atau sumber..."
+                android:padding="12dp"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/muted"
+                android:textSize="15sp"
+                android:singleLine="true"
+                android:imeOptions="actionSearch"
+                android:inputType="text" />
+
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/news_list"
                 android:layout_width="match_parent"
@@ -232,6 +244,22 @@
                 android:text="Gambar komik diunduh otomatis / saat tarik ke bawah untuk refresh"
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
+
+            <!-- v1.1.11: cari komik (judul/genre), gaya = search Cerpen. -->
+            <EditText
+                android:id="@+id/search_komik_input"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/card_bg"
+                android:hint="Cari judul komik..."
+                android:padding="12dp"
+                android:textColor="@color/ink"
+                android:textColorHint="@color/muted"
+                android:textSize="15sp"
+                android:singleLine="true"
+                android:imeOptions="actionSearch"
+                android:inputType="text" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/komik_list"

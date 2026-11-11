@@ -54,6 +54,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var continueMeta: TextView
     private lateinit var continueButton: Button
     private lateinit var searchInput: EditText
+    private lateinit var searchNewsInput: EditText
+    private lateinit var searchKomikInput: EditText
     private lateinit var genreRow: LinearLayout
     private lateinit var cerpenList: RecyclerView
     private lateinit var historySection: LinearLayout
@@ -71,6 +73,8 @@ class MainActivity : AppCompatActivity() {
     private var newsData: List<NewsArticle> = emptyList()
     private var komikData: List<Komik> = emptyList()
     private var query: String = ""
+    private var newsQuery: String = ""
+    private var komikQuery: String = ""
     private var selectedGenre: String = "Semua"
     private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik, 3 = Koleksi
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
@@ -133,6 +137,8 @@ class MainActivity : AppCompatActivity() {
         continueMeta = findViewById(R.id.continue_meta)
         continueButton = findViewById(R.id.continue_button)
         searchInput = findViewById(R.id.search_input)
+        searchNewsInput = findViewById(R.id.search_news_input)
+        searchKomikInput = findViewById(R.id.search_komik_input)
         genreRow = findViewById(R.id.genre_row)
         cerpenList = findViewById(R.id.cerpen_list)
         historySection = findViewById(R.id.history_section)
@@ -169,11 +175,33 @@ class MainActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) {}
         })
 
+        // v1.1.11: cari di Berita (judul/sumber) + Komik (judul/genre),
+        // pola sama dengan search Cerpen di atas.
+        searchNewsInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                newsQuery = s?.toString()?.trim() ?: ""
+                applyNewsList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+        searchKomikInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                komikQuery = s?.toString()?.trim() ?: ""
+                applyKomikList()
+            }
+            override fun afterTextChanged(s: Editable?) {}
+        })
+
         koleksiSettingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         dockItems.forEach { item ->
-            item.cell.setOnClickListener { showTab(item.tab) }
+            // v1.1.11: ketuk-ulang tab aktif = scroll ke atas + refresh.
+            item.cell.setOnClickListener {
+                if (item.tab == selectedTab) onTabReselected(item.tab) else showTab(item.tab)
+            }
         }
         dockCari.setOnClickListener { focusSearch() }
 
@@ -198,6 +226,9 @@ class MainActivity : AppCompatActivity() {
         autoSyncContent()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
+        }
+        if (newsData.isNotEmpty()) {
+            applyNewsList()
         }
         if (komikData.isNotEmpty()) {
             applyKomikList()
@@ -228,6 +259,12 @@ class MainActivity : AppCompatActivity() {
         searchInput.setTextColor(palette.ink)
         searchInput.setHintTextColor(palette.muted)
         searchInput.background = ThemeHelper.cardBackground(this, palette)
+        searchNewsInput.setTextColor(palette.ink)
+        searchNewsInput.setHintTextColor(palette.muted)
+        searchNewsInput.background = ThemeHelper.cardBackground(this, palette)
+        searchKomikInput.setTextColor(palette.ink)
+        searchKomikInput.setHintTextColor(palette.muted)
+        searchKomikInput.background = ThemeHelper.cardBackground(this, palette)
         continueSection.background = ThemeHelper.cardBackground(this, palette)
         dockBar.background = ThemeHelper.dockBackground(this, palette)
         dockCari.background = ThemeHelper.bubbleBackground(this, palette)
@@ -251,14 +288,36 @@ class MainActivity : AppCompatActivity() {
         item.label.setTextColor(color)
     }
 
-    /** Bubble Cari: pindah ke tab Cerpen, scroll ke atas, fokus kolom cari. */
+    /** Bubble Cari (v1.1.11): fokus ke kolom cari TAB YANG SEDANG
+     * AKTIF, scroll ke atas, tampilkan keyboard. Koleksi tidak punya
+     * kolom cari — tetap lompat ke Cerpen seperti dulu. */
     private fun focusSearch() {
-        showTab(0)
+        val target: EditText = when (selectedTab) {
+            1 -> searchNewsInput
+            2 -> searchKomikInput
+            else -> {
+                if (selectedTab == 3) showTab(0)
+                searchInput
+            }
+        }
         mainScroll.post {
             mainScroll.smoothScrollTo(0, 0)
-            searchInput.requestFocus()
+            target.requestFocus()
             val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(searchInput, InputMethodManager.SHOW_IMPLICIT)
+            imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    /** Ketuk-ulang tab aktif (v1.1.11): scroll ke atas + refresh
+     * konten (syncNow tanpa throttle, sama seperti pull-to-refresh).
+     * Koleksi isinya lokal — scroll saja, tanpa sync. */
+    private fun onTabReselected(tab: Int) {
+        mainScroll.post { mainScroll.smoothScrollTo(0, 0) }
+        when (tab) {
+            0 -> { cerpenList.scrollToPosition(0); syncNow() }
+            1 -> { newsList.scrollToPosition(0); syncNow() }
+            2 -> { komikList.scrollToPosition(0); syncNow() }
+            3 -> Unit
         }
     }
 
@@ -298,24 +357,37 @@ class MainActivity : AppCompatActivity() {
                 loading.visibility = View.GONE
                 buildGenreChips()
                 applyCerpenFilter()
+                applyNewsList()
                 applyKomikList()
-                val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
-                val scale = ThemeHelper.fontScale(this)
-                newsList.adapter = NewsAdapter(
-                    newsData, { openNewsDetail(it) }, palette, scale,
-                    onDownload = { a, pos -> downloadNews(a, pos) }
-                )
                 showContinueReading()
                 showHistoryAndBookmarks()
             }
         }.start()
     }
 
+    /** Daftar berita (difilter query cari bila ada) — v1.1.11. */
+    private fun applyNewsList() {
+        val q = newsQuery.lowercase()
+        val filtered = if (q.isEmpty()) newsData else newsData.filter { a ->
+            a.title.lowercase().contains(q) || a.source.lowercase().contains(q)
+        }
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val scale = ThemeHelper.fontScale(this)
+        newsList.adapter = NewsAdapter(
+            filtered, { openNewsDetail(it) }, palette, scale,
+            onDownload = { a, pos -> downloadNews(a, pos) }
+        )
+    }
+
     private fun applyKomikList() {
+        val q = komikQuery.lowercase()
+        val filtered = if (q.isEmpty()) komikData else komikData.filter { k ->
+            k.judul.lowercase().contains(q) || k.genre.lowercase().contains(q)
+        }
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
         komikList.adapter = KomikAdapter(
-            komikData, { openKomikDetail(it) }, palette, scale,
+            filtered, { openKomikDetail(it) }, palette, scale,
             onDownload = { k, pos -> downloadKomik(k, pos) },
             newestId = newestKomikId
         )
