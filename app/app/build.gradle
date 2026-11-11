@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 10
-        versionName = "1.1.8"
+        versionCode = 11
+        versionName = "1.1.9"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya
@@ -59,7 +59,10 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         release {
-            minifyEnabled = false
+            // v1.1.9: minify + shrink AKTIF (dulu false) — APK ramping
+            // target ~5 MB. Keep rules menjaga jalur dekripsi + JNI.
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig signingConfigs.release
         }
@@ -92,11 +95,13 @@ android {
         ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:<dir>_*:!CVS:!thumbs.db:!picasa.ini:!*~:!komik-*"
     }
 
-    // Aset dibaca langsung dari data/ repo (single source of truth) +
-    // src/main/assets bila ada. Ini menghindari langkah salin yang rapuh.
+    // v1.1.9: konten TIDAK lagi di-bundle ke APK (dulu data/ ikut
+    // ter-bundle ~36 MB) — konten diunduh in-app dari repo saat
+    // pertama buka / Perbarui Konten (DataManager.syncFromGithub).
+    // Folder data/ tetap ada di repo sebagai sumber unduhan.
     sourceSets {
         getByName("main") {
-            assets.srcDirs("src/main/assets", "../../data")
+            assets.srcDirs("src/main/assets")
         }
     }
 }

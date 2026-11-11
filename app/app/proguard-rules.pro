@@ -1,5 +1,5 @@
-# ProGuard/R8 rules untuk Cerpen Hozin (debug memakai minifyEnabled=true
-# agar APK kecil; release tetap minifyEnabled=false).
+# ProGuard/R8 rules untuk Cerpen Hozin (debug + release memakai
+# minifyEnabled=true agar APK kecil; target ~5 MB).
 #
 # JANGAN hapus keep di bawah: nama kelas + method ini dipakai JNI
 # (ContentGuard.fetchKey -> Java_com_hozinking_cerpen_ContentGuard_fetchKey)
