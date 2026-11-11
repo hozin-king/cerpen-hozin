@@ -38,6 +38,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dockCari: View
     private lateinit var dockCariBg: GlassView
     private lateinit var dockCariIcon: TextView
+    // v1.1.14: remote config — banner di atas daftar + spacer dock (tempat bubble Cari).
+    private lateinit var remoteBanner: TextView
+    private lateinit var dockSpacer: View
     private lateinit var dockItems: List<DockItem>
     private lateinit var cerpenTab: LinearLayout
     private lateinit var newsTab: LinearLayout
@@ -85,6 +88,9 @@ class MainActivity : AppCompatActivity() {
     /** Filter jenis daftar Cerbung (v1.1.12): Semua / Cerbung / Cergam. */
     private var selectedType: String = "Semua"
     private var selectedTab: Int = 0 // 0 = Cerpen, 1 = Berita, 2 = Komik, 3 = Koleksi
+    /** Remote config aktif (v1.1.14) + warna aksen override-nya (null = palette.accent). */
+    private var remoteConfig: RemoteConfig = RemoteConfig.DEFAULT
+    private var remoteAccent: Int? = null
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
     private var syncBusy = false
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
@@ -122,6 +128,8 @@ class MainActivity : AppCompatActivity() {
         dockCari = findViewById(R.id.dock_cari)
         dockCariBg = findViewById(R.id.dock_cari_bg)
         dockCariIcon = findViewById(R.id.dock_cari_icon)
+        remoteBanner = findViewById(R.id.remote_banner)
+        dockSpacer = findViewById(R.id.dock_spacer)
         dockItems = listOf(
             DockItem(findViewById(R.id.dock_cerbung), findViewById(R.id.dock_cerbung_icon), findViewById(R.id.dock_cerbung_label), 0),
             DockItem(findViewById(R.id.dock_berita), findViewById(R.id.dock_berita_icon), findViewById(R.id.dock_berita_label), 1),
@@ -236,6 +244,11 @@ class MainActivity : AppCompatActivity() {
         applyThemeAndFont()
         showTab(selectedTab)
         loadContent()
+        // v1.1.14: remote config — terapkan cache dulu, lalu fetch
+        // non-blocking (gagal = diam, cache/DEFAULT tetap dipakai).
+        remoteConfig = RemoteConfig.loadCached(this)
+        applyRemoteConfig(remoteConfig)
+        fetchRemoteConfig()
         // v1.1.6: konten auto-update — tiap buka aplikasi (throttle 30 mnt)
         // langsung cek manifest GitHub dan unduh yang baru, tanpa aksi
         // pengguna. Gagal (tanpa internet) = diam, konten lama
@@ -300,6 +313,66 @@ class MainActivity : AppCompatActivity() {
         dockBarBg.setGlass(palette, GlassView.SHAPE_PILL)
         dockCariBg.setGlass(palette, GlassView.SHAPE_OVAL)
         dockCariIcon.setTextColor(palette.onAccent)
+        // v1.1.14: terapkan lagi urutan/label/banner/aksen config (tema
+        // bisa berubah dari Settings — styling banner ikut palet baru).
+        applyRemoteConfig(remoteConfig)
+    }
+
+    // ============ REMOTE CONFIG (v1.1.14) ============
+    // Tab dock, banner, dan aksen dari CMS — tanpa toast/error ke user
+    // bila fetch gagal (cache terakhir / DEFAULT tetap dipakai).
+
+    /** Fetch config di thread background; sukses -> simpan + terapkan. */
+    private fun fetchRemoteConfig() {
+        Thread {
+            val fetched = RemoteConfig.fetch(this) ?: return@Thread
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                applyRemoteConfig(fetched)
+            }
+        }.start()
+    }
+
+    /** Indeks tab (0..3) yang visible menurut config aktif. */
+    private fun visibleTabIndices(): List<Int> =
+        remoteConfig.tabs.mapNotNull { t ->
+            RemoteConfig.tabIndex(t.id).takeIf { it >= 0 && t.visible }
+        }
+
+    /**
+     * Terapkan config ke dock + banner + aksen. Urutan sel dock mengikuti
+     * urutan `tabs`; spacer (tempat bubble Cari) tetap di tengah (posisi
+     * ke-3). Semua tab hidden -> tampilkan semua dengan default.
+     */
+    private fun applyRemoteConfig(config: RemoteConfig) {
+        remoteConfig = config
+        remoteAccent = config.accentColor()
+        val tabs = if (config.tabs.any { it.visible }) config.tabs else RemoteConfig.DEFAULT.tabs
+        dockBar.removeAllViews()
+        var spacerAdded = false
+        tabs.forEachIndexed { i, t ->
+            if (i == 2) {
+                dockBar.addView(dockSpacer)
+                spacerAdded = true
+            }
+            val item = dockItems.firstOrNull { it.tab == RemoteConfig.tabIndex(t.id) } ?: return@forEachIndexed
+            item.label.text = t.label.ifEmpty { RemoteConfig.defaultLabel(t.id) }
+            item.cell.visibility = if (t.visible) View.VISIBLE else View.GONE
+            dockBar.addView(item.cell)
+        }
+        if (!spacerAdded) dockBar.addView(dockSpacer)
+        // Banner: satu untuk semua tab, maks 140 karakter; kosong = sembunyi.
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val bannerText = config.banner.trim().take(RemoteConfig.MAX_BANNER_CHARS)
+        if (bannerText.isEmpty()) {
+            remoteBanner.visibility = View.GONE
+        } else {
+            remoteBanner.text = bannerText
+            remoteBanner.setTextColor(palette.ink)
+            remoteBanner.background = ThemeHelper.cardBackground(this, palette)
+            remoteBanner.visibility = View.VISIBLE
+        }
+        // Bila tab aktif disembunyikan -> showTab pindah ke visible pertama.
         showTab(selectedTab)
     }
 
@@ -310,17 +383,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showTab(tab: Int) {
-        selectedTab = tab
+        // v1.1.14: tab yang disembunyikan config tidak bisa dibuka —
+        // pindah ke tab visible pertama (fail-closed bila semua hidden).
+        val visible = visibleTabIndices()
+        val effective = if (tab in visible) tab else visible.firstOrNull() ?: 0
+        selectedTab = effective
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
-        cerpenTab.visibility = if (tab == 0) View.VISIBLE else View.GONE
-        newsTab.visibility = if (tab == 1) View.VISIBLE else View.GONE
-        komikTab.visibility = if (tab == 2) View.VISIBLE else View.GONE
-        koleksiTab.visibility = if (tab == 3) View.VISIBLE else View.GONE
-        dockItems.forEach { styleDockItem(it, it.tab == tab, palette) }
+        cerpenTab.visibility = if (effective == 0) View.VISIBLE else View.GONE
+        newsTab.visibility = if (effective == 1) View.VISIBLE else View.GONE
+        komikTab.visibility = if (effective == 2) View.VISIBLE else View.GONE
+        koleksiTab.visibility = if (effective == 3) View.VISIBLE else View.GONE
+        dockItems.forEach { styleDockItem(it, it.tab == effective, palette) }
     }
 
     private fun styleDockItem(item: DockItem, selected: Boolean, palette: ThemePalette) {
-        val color = if (selected) palette.accent else palette.muted
+        // v1.1.14: aksen config menggantikan palette.accent HANYA untuk
+        // label/ikon tab aktif di dock — warna lain tidak berubah.
+        val color = if (selected) remoteAccent ?: palette.accent else palette.muted
         item.icon.setTextColor(color)
         item.label.setTextColor(color)
     }
@@ -723,6 +802,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun syncNow() {
+        // v1.1.14: pull-to-refresh juga me-refresh remote config
+        // (non-blocking, sejajar dengan sync konten — tetap jalan walau
+        // sync konten sedang sibuk).
+        fetchRemoteConfig()
         // Cegah sync ganda (auto + tarik bersamaan).
         if (syncBusy) return
         setSyncBusy(true)

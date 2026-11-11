@@ -53,6 +53,17 @@
             android:textColor="@color/muted"
             android:textSize="14sp" />
 
+        <!-- v1.1.14: banner remote config (satu untuk semua tab; teks
+             + visibilitas diatur runtime dari /api/cerpen-config). -->
+        <TextView
+            android:id="@+id/remote_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:padding="12dp"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
         <ProgressBar
             android:id="@+id/loading"
             android:layout_width="wrap_content"
@@ -491,6 +502,7 @@
 
             <!-- Sel kosong: tempat bubble Cari menumpang di atas pill. -->
             <View
+                android:id="@+id/dock_spacer"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1" />
