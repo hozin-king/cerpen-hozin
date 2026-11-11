@@ -259,6 +259,11 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // v1.1.15: cek update manual dari Pengaturan — jalan sekali saat kembali.
+        if (updatePrefs.getBoolean("manual_check_requested", false)) {
+            updatePrefs.edit().remove("manual_check_requested").apply()
+            checkForAppUpdateManual()
+        }
         applyThemeAndFont()
         showContinueReading()
         showHistoryAndBookmarks()
@@ -830,6 +835,54 @@ class MainActivity : AppCompatActivity() {
     // Fail-open: cek gagal (tanpa internet / API error) = diam, aplikasi
     // tetap jalan normal. Dialog ini HANYA update kode — konten di-sync
     // DataManager dan bisa update tanpa update APK.
+
+    /**
+     * Cek update MANUAL (v1.1.15, tombol "Periksa Pembaruan" di Pengaturan):
+     * lewati throttle 6 jam + abaikan dismissed_tag. Hasil SELALU
+     * diberitahu: ada update -> dialog seperti biasa; sudah terbaru ->
+     * toast; gagal jaringan/respons aneh -> toast gagal (jangan diam).
+     * Throttle auto-check 6 jam TIDAK diubah (last_check_ms tetap
+     * ditulis agar auto-check tidak langsung mengulang).
+     */
+    private fun checkForAppUpdateManual() {
+        val installed = BuildConfig.VERSION_NAME
+        updatePrefs.edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
+        Thread {
+            val latestJson = UpdateCheck.fetchText(UpdateCheck.LATEST_RELEASE_URL)
+            if (latestJson == null) {
+                runOnUiThread {
+                    Toast.makeText(this, "Gagal memeriksa pembaruan — periksa internet lalu coba lagi", Toast.LENGTH_LONG).show()
+                }
+                return@Thread
+            }
+            val latest = UpdateCheck.parseLatestRelease(latestJson)
+            if (latest == null) {
+                runOnUiThread {
+                    Toast.makeText(this, "Gagal memeriksa pembaruan — respons tidak dikenal", Toast.LENGTH_LONG).show()
+                }
+                return@Thread
+            }
+            if (UpdateCheck.compareVersions(latest.version, installed) <= 0) {
+                runOnUiThread {
+                    Toast.makeText(this, "Sudah versi terbaru (v$installed)", Toast.LENGTH_SHORT).show()
+                }
+                return@Thread
+            }
+            val tagsJson = UpdateCheck.fetchText(UpdateCheck.RELEASES_URL)
+            val tags = if (tagsJson == null) emptyList() else UpdateCheck.parseReleaseTags(tagsJson)
+            val decision = UpdateCheck.decide(installed, latest, tags)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (decision is UpdateCheck.Decision.Force) {
+                    updatePrefs.edit()
+                        .putString("force_tag", decision.release.tag)
+                        .putString("force_apk_url", decision.release.apkUrl)
+                        .apply()
+                }
+                showUpdateDialog(decision)
+            }
+        }.start()
+    }
 
     /** Cek update: onCreate + onResume, throttle maks 1x per 6 jam. */
     private fun checkForAppUpdate() {
