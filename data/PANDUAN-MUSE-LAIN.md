@@ -76,7 +76,7 @@ paste JSON ke Hozin — Alyaa yang memprosesnya.
 
 ## 3. Format & aturan konten (keras)
 
-- **Cerpen baru:** `id` berurutan (`cerpen-55` berikutnya). 1 season,
+- **Cerpen baru:** `id` berurutan (`cerpen-57` berikutnya). 1 season,
   2 episode. Tiap episode 600–1200 kata, Bahasa Indonesia baku,
   paragraf pendek. Paragraf penutup episode dibungkus `*...*`
   (miring, Markdown). Boleh pakai coret `~~teks~~` dan warna
@@ -109,7 +109,7 @@ paste JSON ke Hozin — Alyaa yang memprosesnya.
 Cerpen (`cerpen.json`):
 
 ```json
-{"cerpen": [{"id": "cerpen-55", "judul": "...", "genre": "Misteri",
+{"cerpen": [{"id": "cerpen-57", "judul": "...", "genre": "Misteri",
 "deskripsi": "1-2 kalimat",
 "cover": "covers/cover_55.jpg",
 "seasons": [{"season": 1, "episodes": [
@@ -127,7 +127,7 @@ Komik (`komik.json`):
 "image_prompt": "gaya webtoon Indonesia, ..."}]}]}]}
 ```
 
-## 5. Daftar cerpen yang sudah ada (54, per 12 Nov 2026)
+## 5. Daftar cerpen yang sudah ada (56, per 12 Nov 2026)
 
 01 Rumah yang Selalu Menunggu (Drama Keluarga) · 02 Surat Terakhir
 dari Stasiun (Romansa) · 03 Kosong di Lantai Tiga (Horor) ·
@@ -165,7 +165,9 @@ di ujung teluk (Fantasi) · 49 Gerbang di kampung di kaki bukit
 (Fantasi) · 50 Sinyal dari pelabuhan kecil yang berangin (Sci-Fi) ·
 51 Pagi di lereng gunung yang berkabut (Slice of Life) · 52 Sinyal dari
 kampung di kaki bukit (Sci-Fi) · 53 Surat Tanpa Nama (Misteri) ·
-54 Pulang ke gang sempit di pinggir kota (Drama Keluarga).
+54 Pulang ke gang sempit di pinggir kota (Drama Keluarga) ·
+55 Kamar Nomor Tujuh (Horor) · 56 Lampu Kuning di Ujung Gang
+(Slice of Life).
 
 Komik yang sudah ada (10): id `komik-01` s/d `komik-10` — cek
 `komik.json` di repo untuk judulnya sebelum mengusulkan komik baru
