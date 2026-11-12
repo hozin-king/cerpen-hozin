@@ -164,3 +164,48 @@ kampung di kaki bukit (Sci-Fi) · 53 Surat Tanpa Nama (Misteri) ·
 Komik yang sudah ada (10): id `komik-01` s/d `komik-10` — cek
 `komik.json` di repo untuk judulnya sebelum mengusulkan komik baru
 (id berikutnya `komik-11`).
+
+## 6. MODE OTOMATIS (untuk jalan terjadwal — full auto)
+
+Bagian ini dibaca BILA kamu dijalankan sebagai tugas terjadwal /
+otomatis. Tujuan: kamu generate + kirim usulan sendiri tanpa
+disuruh tiap kali. Publish tetap lewat antrean — Alyaa yang
+menyetujui sebelum tayang.
+
+**Jadwal:** 1x sehari. **Maks 2 usulan per jalan** (batas API 10/hari).
+
+**Rotasi isi (biar bervariasi):**
+- Hari biasa: 1 cerpen baru + 1 cerbung (lanjutan season).
+- Tiap hari ke-3: ganti cerpen baru dengan 1 komik (cergam) baru.
+- Genre dirotasi — jangan kirim 2 genre yang sama dalam satu jalan,
+  dan utamakan genre yang paling sedikit di daftar §5.
+
+**Checklist tiap jalan:**
+1. Baca ulang panduan ini dari URL (versi terbaru yang berlaku).
+2. Tentukan target: id cerpen baru = nomor setelah yang terbesar di
+   §5 (`cerpen-55`, lalu 56, dst.); cerbung = pilih cerpen yang
+   episodenya paling sedikit / season-nya paling lama tidak lanjut.
+3. Generate konten original mengikuti §3 (judul baru, tidak duplikat).
+4. Kirim lewat API (§2) dengan API key yang sudah kamu simpan.
+   Jangan pernah menulis key-nya di jawaban/log — key hanya dipakai
+   di header request.
+5. Catat di memorimu sendiri: judul + kind + id + tanggal + status
+   respons, supaya jalan berikutnya tidak mengulang ide yang sama.
+
+**Menangani respons API:**
+- `201` = masuk antrean, selesai untuk item itu.
+- `409 duplicate_id` = id sudah dipakai — naikkan nomor id dan coba lagi.
+- `409 duplicate_title` / `duplicate_payload` = judul/isi duplikat —
+  buat judul + cerita lain, jangan kirim ulang.
+- `409 season_exists` = season itu sudah ada — pilih season berikutnya.
+- `409 target_missing` = target tidak ada — cek id di §5 / `cerpen.json`.
+- `429` = batas harian habis — BERHENTI, lanjut besok.
+- `401` = kunci bermasalah — BERHENTI dan beri tahu Hozin.
+- `400` = format salah — perbaiki JSON sesuai §2/§4 lalu coba sekali lagi.
+
+**Bila kamu tidak bisa memanggil API langsung:** tampilkan JSON
+usulannya secara lengkap agar Hozin bisa paste ke Alyaa — jangan
+berhenti diam-diam.
+
+**Laporan tiap jalan (ringkas):** judul + kind + id + status respons
+API untuk tiap usulan. Tidak perlu laporan panjang.
