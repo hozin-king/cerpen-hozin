@@ -16,6 +16,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -105,6 +106,8 @@ class MainActivity : AppCompatActivity() {
     // konten tetap di-sync DataManager tanpa update APK.
     private val updatePrefs by lazy { getSharedPreferences("update_check", MODE_PRIVATE) }
     private var updateDialog: AlertDialog? = null
+    /** v1.1.24: dialog konfirmasi keluar (kaca iOS, non-cancelable). */
+    private var exitDialog: AlertDialog? = null
     private var updateProgressDialog: AlertDialog? = null
     private var updateDownloadCancelled = false
 
@@ -276,6 +279,10 @@ class MainActivity : AppCompatActivity() {
         // Gagal/batal instal = file tetap ada untuk retry.
         AppUpdate.deleteInstalledApks(this, BuildConfig.VERSION_NAME)
         checkForAppUpdate()
+        // v1.1.24: back di beranda = konfirmasi keluar, bukan langsung tutup.
+        // Sub-layar (detail/baca/pengaturan) adalah activity terpisah —
+        // back di sana kembali sendiri tanpa menyentuh callback ini.
+        onBackPressedDispatcher.addCallback(this) { showExitDialog() }
         autoSyncContent()
     }
 
@@ -291,6 +298,8 @@ class MainActivity : AppCompatActivity() {
         showHistoryAndBookmarks()
         showPendingInstallIfReady()
         checkForAppUpdate()
+        // v1.1.24: pulihkan dialog keluar yang tertunda (rotasi / proses mati).
+        restorePendingExitDialog()
         autoSyncContent()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
@@ -1060,6 +1069,52 @@ class MainActivity : AppCompatActivity() {
             .apply()
     }
 
+    /** v1.1.24: hapus penanda dialog keluar yang tertunda. */
+    private fun clearPendingExit() {
+        updatePrefs.edit().remove("pending_exit_dialog").apply()
+    }
+
+    /**
+     * v1.1.24: tampilkan lagi dialog keluar yang tertunda (rotasi /
+     * proses mati). Dialog update yang sedang tampil menang — penanda
+     * keluar tetap, tampil lagi saat onResume berikutnya.
+     */
+    private fun restorePendingExitDialog() {
+        if (!updatePrefs.getBoolean("pending_exit_dialog", false)) return
+        if (updateDialog?.isShowing == true) return
+        showExitDialog()
+    }
+
+    /**
+     * v1.1.24: dialog konfirmasi keluar, kaca ala iOS + non-cancelable
+     * seperti dialog update — satu-satunya jalan keluar adalah tombolnya.
+     * BATAL = tutup dialog, aplikasi tetap jalan. KELUAR = tutup aplikasi.
+     */
+    private fun showExitDialog() {
+        if (!ExitBack.shouldShowExitDialog(
+                updateDialog?.isShowing == true,
+                exitDialog?.isShowing == true
+            )
+        ) return
+        // Simpan penanda agar dialog tampil lagi setelah rotasi / proses mati.
+        updatePrefs.edit().putBoolean("pending_exit_dialog", true).apply()
+        val dialog = GlassDialog.create(
+            context = this,
+            title = "Keluar dari Cerpen Hozin?",
+            message = "Yakin mau keluar dari aplikasi?",
+            negative = GlassDialog.Button("Batal", accent = false) {
+                clearPendingExit()
+            },
+            positive = GlassDialog.Button("Keluar", accent = true) {
+                clearPendingExit()
+                finishAffinity()
+            }
+        )
+        dialog.setOnDismissListener { exitDialog = null }
+        exitDialog = dialog
+        dialog.show()
+    }
+
     /**
      * v1.1.23: tampilkan lagi dialog update yang tertunda (rotasi /
      * proses mati). True bila dialog ditampilkan — pemanggil tidak perlu
@@ -1100,6 +1155,10 @@ class MainActivity : AppCompatActivity() {
     /** Tampilkan dialog update kaca iOS (biasa, paksa, atau signer mismatch). */
     private fun showUpdateDialog(decision: UpdateCheck.Decision) {
         if (updateDialog?.isShowing == true) return
+        // v1.1.24: dialog update lebih penting — tutup dialog keluar bila
+        // sedang tampil supaya tidak menumpuk (penandanya tetap, jadi
+        // dialog keluar tampil lagi setelah dialog update ditutup).
+        exitDialog?.dismiss()
         val (release, kind) = when (decision) {
             is UpdateCheck.Decision.Soft -> decision.release to "soft"
             is UpdateCheck.Decision.Force -> decision.release to "force"
