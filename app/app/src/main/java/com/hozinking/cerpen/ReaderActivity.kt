@@ -2,6 +2,7 @@ package com.hozinking.cerpen
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.method.LinkMovementMethod
 import android.view.View
 import android.widget.Button
 import android.widget.ProgressBar
@@ -9,6 +10,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import io.noties.markwon.Markwon
+import io.noties.markwon.SoftBreakAddsNewLinePlugin
 
 class ReaderActivity : AppCompatActivity() {
 
@@ -114,7 +117,14 @@ class ReaderActivity : AppCompatActivity() {
         supportActionBar?.title = c.judul
         titleText.text = ep.judul
         metaText.text = "${c.judul} · Season $seasonNo · Episode ${ep.no}"
-        bodyText.text = ep.isi
+        // v1.1.17: isi episode ditulis Markdown — render native via Markwon
+        // (tanpa WebView). SoftBreakAddsNewLine: baris tunggal (\n) tetap
+        // ganti baris, jadi episode lama tampil sama persis.
+        val markwon = Markwon.builder(this)
+            .usePlugin(SoftBreakAddsNewLinePlugin.create())
+            .build()
+        markwon.setMarkdown(bodyText, ep.isi)
+        bodyText.movementMethod = LinkMovementMethod.getInstance()
         applyTextSize()
         applyTheme()
         updateBookmarkLabel()

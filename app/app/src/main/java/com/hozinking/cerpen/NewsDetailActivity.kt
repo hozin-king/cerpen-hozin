@@ -2,6 +2,7 @@ package com.hozinking.cerpen
 
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.text.method.LinkMovementMethod
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
@@ -9,6 +10,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import io.noties.markwon.Markwon
+import io.noties.markwon.SoftBreakAddsNewLinePlugin
 
 /**
  * Pembaca artikel berita lengkap (v1.1): isi penuh tanpa pemotongan.
@@ -149,13 +152,20 @@ class NewsDetailActivity : AppCompatActivity() {
             for (i in a.images.indices) addImage(i)
             return
         }
+        // v1.1.17: tiap paragraf berita ditulis Markdown — render native
+        // via Markwon (tanpa WebView). Baris tunggal (\n) tetap ganti
+        // baris supaya artikel lama tampil sama persis.
+        val markwon = Markwon.builder(this)
+            .usePlugin(SoftBreakAddsNewLinePlugin.create())
+            .build()
         for ((blockIdx, block) in blocks.withIndex()) {
             val tv = TextView(this)
             tv.layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             )
-            tv.text = block
+            markwon.setMarkdown(tv, block)
+            tv.movementMethod = LinkMovementMethod.getInstance()
             tv.setTextColor(palette.ink)
             tv.textSize = textSize
             tv.setLineSpacing(0f, 1.6f)

@@ -178,6 +178,20 @@ class MainActivity : AppCompatActivity() {
 
         // v1.2: pull-to-refresh = satu-satunya pemicu sync manual (syncNow).
         swipeRefresh.setOnRefreshListener { syncNow() }
+        // v1.1.17: SwipeRefreshLayout hanya melihat child langsung
+        // (ScrollView), jadi tarikan ke bawah saat RecyclerView tab aktif
+        // sedang ter-scroll ikut ke-intercept jadi refresh. Callback ini
+        // menganggap "bisa scroll ke atas" bila ScrollView ATAU daftar
+        // tab aktif masih bisa scroll — refresh hanya saat semuanya di atas.
+        swipeRefresh.setOnChildScrollUpCallback { _, _ ->
+            mainScroll.canScrollVertically(-1) || when (selectedTab) {
+                0 -> cerpenList.canScrollVertically(-1)
+                1 -> newsList.canScrollVertically(-1)
+                2 -> komikList.canScrollVertically(-1)
+                else -> historyList.canScrollVertically(-1) ||
+                    bookmarkList.canScrollVertically(-1)
+            }
+        }
 
         cerpenList.layoutManager = LinearLayoutManager(this)
         historyList.layoutManager = LinearLayoutManager(this)
