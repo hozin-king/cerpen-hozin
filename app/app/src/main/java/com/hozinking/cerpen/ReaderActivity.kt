@@ -1,5 +1,6 @@
 package com.hozinking.cerpen
 
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.os.Bundle
 import android.text.method.LinkMovementMethod
@@ -12,6 +13,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import io.noties.markwon.Markwon
 import io.noties.markwon.SoftBreakAddsNewLinePlugin
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.html.HtmlPlugin
 
 class ReaderActivity : AppCompatActivity() {
 
@@ -28,6 +31,9 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var nextButton: Button
     private lateinit var smallerButton: Button
     private lateinit var biggerButton: Button
+    // v1.1.18: animator denyut kata berwarna (null bila episode ini
+    // tidak punya kata berwarna — lihat PulseText).
+    private var pulseAnimator: ValueAnimator? = null
     private lateinit var themeButton: Button
     private lateinit var bookmarkButton: Button
     private lateinit var settingsButton: Button
@@ -120,11 +126,17 @@ class ReaderActivity : AppCompatActivity() {
         // v1.1.17: isi episode ditulis Markdown — render native via Markwon
         // (tanpa WebView). SoftBreakAddsNewLine: baris tunggal (\n) tetap
         // ganti baris, jadi episode lama tampil sama persis.
+        // v1.1.18: + coret (~~teks~~) dan warna (<font color="#...">teks</font>).
         val markwon = Markwon.builder(this)
             .usePlugin(SoftBreakAddsNewLinePlugin.create())
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(HtmlPlugin.create { it.addHandler(FontColorHandler()) })
             .build()
         markwon.setMarkdown(bodyText, ep.isi)
         bodyText.movementMethod = LinkMovementMethod.getInstance()
+        // v1.1.18: kata berwarna berdenyut halus (pilihan user).
+        PulseText.stop(pulseAnimator)
+        pulseAnimator = PulseText.start(bodyText)
         applyTextSize()
         applyTheme()
         updateBookmarkLabel()
@@ -170,6 +182,8 @@ class ReaderActivity : AppCompatActivity() {
         theme = ProgressStore.getTheme(this)
         applyTextSize()
         applyTheme()
+        // v1.1.18: nyalakan lagi denyut yang dimatikan di onPause.
+        if (pulseAnimator == null) pulseAnimator = PulseText.start(bodyText)
     }
 
     private fun applyTextSize() {
@@ -211,6 +225,9 @@ class ReaderActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveProgress()
+        // v1.1.18: matikan denyut saat layar tidak terlihat (hemat baterai).
+        PulseText.stop(pulseAnimator)
+        pulseAnimator = null
     }
 
     override fun onSupportNavigateUp(): Boolean {

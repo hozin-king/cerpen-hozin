@@ -1,5 +1,6 @@
 package com.hozinking.cerpen
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.text.method.LinkMovementMethod
@@ -12,6 +13,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import io.noties.markwon.Markwon
 import io.noties.markwon.SoftBreakAddsNewLinePlugin
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.html.HtmlPlugin
 
 /**
  * Pembaca artikel berita lengkap (v1.1): isi penuh tanpa pemotongan.
@@ -46,6 +49,8 @@ class NewsDetailActivity : AppCompatActivity() {
     private var article: NewsArticle? = null
     private var downloading = false
     private var lastTheme = -1
+    // v1.1.18: animator denyut kata berwarna, satu per blok teks.
+    private val pulseAnimators = mutableListOf<ValueAnimator>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,7 +105,25 @@ class NewsDetailActivity : AppCompatActivity() {
             buildBody(null)
             loadImages()
         }
+        // v1.1.18: nyalakan lagi denyut yang dimatikan di onPause.
+        // (Bila buildBody baru jalan di atas, animator sudah ada — lewati.)
+        if (pulseAnimators.isEmpty()) restartPulse()
         refreshDownloadButton()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // v1.1.18: matikan denyut saat layar tidak terlihat (hemat baterai).
+        for (anim in pulseAnimators) PulseText.stop(anim)
+        pulseAnimators.clear()
+    }
+
+    // v1.1.18: nyalakan denyut di semua blok teks yang sedang tampil.
+    private fun restartPulse() {
+        for (i in 0 until bodyContainer.childCount) {
+            val child = bodyContainer.getChildAt(i)
+            if (child is TextView) PulseText.start(child)?.let { pulseAnimators += it }
+        }
     }
 
     /** Muat bitmap gambar artikel di thread latar, lalu bangun ulang isi. */
@@ -126,6 +149,9 @@ class NewsDetailActivity : AppCompatActivity() {
         val textSize = ProgressStore.getTextSizeSp(this)
         val d = resources.displayMetrics.density
         bodyContainer.removeAllViews()
+        // v1.1.18: hentikan denyut lama — TextView lama dibuang di atas.
+        for (anim in pulseAnimators) PulseText.stop(anim)
+        pulseAnimators.clear()
         val bodyText = if (a.details.isNotBlank()) a.details else a.summary
         val blocks = bodyText.split("\n\n").filter { it.isNotBlank() }
         val positions = NewsBodyLayout.insertAfter(blocks.size, a.images.size)
@@ -155,8 +181,11 @@ class NewsDetailActivity : AppCompatActivity() {
         // v1.1.17: tiap paragraf berita ditulis Markdown — render native
         // via Markwon (tanpa WebView). Baris tunggal (\n) tetap ganti
         // baris supaya artikel lama tampil sama persis.
+        // v1.1.18: + coret (~~teks~~) dan warna (<font color="#...">teks</font>).
         val markwon = Markwon.builder(this)
             .usePlugin(SoftBreakAddsNewLinePlugin.create())
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(HtmlPlugin.create { it.addHandler(FontColorHandler()) })
             .build()
         for ((blockIdx, block) in blocks.withIndex()) {
             val tv = TextView(this)
@@ -166,6 +195,8 @@ class NewsDetailActivity : AppCompatActivity() {
             )
             markwon.setMarkdown(tv, block)
             tv.movementMethod = LinkMovementMethod.getInstance()
+            // v1.1.18: kata berwarna di blok ini berdenyut halus.
+            PulseText.start(tv)?.let { pulseAnimators += it }
             tv.setTextColor(palette.ink)
             tv.textSize = textSize
             tv.setLineSpacing(0f, 1.6f)

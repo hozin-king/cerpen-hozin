@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.1.17"
+        versionCode = 20
+        versionName = "1.1.18"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya
@@ -114,6 +114,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     // v1.1.17: render Markdown native (tanpa WebView) untuk isi cerpen/berita.
     implementation("io.noties.markwon:core:4.6.2")
+    // v1.1.18: coret (~~teks~~) + warna HTML (<font color="#...">).
+    implementation("io.noties.markwon:ext-strikethrough:4.6.2")
+    implementation("io.noties.markwon:html:4.6.2")
 
     // Unit test: org.json asli (android.jar hanya berisi stub yang melempar
     // "Stub!") agar NewsDetailsFormatterTest bisa jalan di JVM.
