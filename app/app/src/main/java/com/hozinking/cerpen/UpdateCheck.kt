@@ -31,6 +31,16 @@ object UpdateCheck {
     /** Tertinggal berapa rilis hingga dialog jadi PAKSA (tanpa bisa ditutup). */
     const val FORCE_AFTER_BEHIND = 3
 
+    /**
+     * SHA-256 sertifikat penandatangan rilis RESMI (CN=Hozin King).
+     * Diambil dari APK rilis resmi v1.1.22 lewat apksigner — BUKAN secret,
+     * nilainya publik (juga tercantum di assetlinks.json untuk App Links).
+     * Dipakai anti-bypass v1.1.23: string versi bisa diedit/dipalsu, tapi
+     * signer tidak bisa dipalsu tanpa kunci rilis.
+     */
+    const val OFFICIAL_SIGNER_SHA256 =
+        "75ba028f4f9b401b3f414a2b9e63617fa35b503c692c5f6c188e3724a7a01c1d"
+
     /** Info satu rilis dari API GitHub. */
     data class ReleaseInfo(val tag: String, val version: String, val apkUrl: String?)
 
@@ -44,6 +54,12 @@ object UpdateCheck {
 
         /** Tertinggal >= 3 rilis — dialog paksa, tanpa bisa di-bypass. */
         data class Force(val release: ReleaseInfo) : Decision()
+
+        /**
+         * v1.1.23: SHA signer terpasang TIDAK cocok dengan rilis resmi —
+         * dialog paksa (tanpa NANTI) meski string versi mengklaim terbaru.
+         */
+        data class SignerMismatch(val release: ReleaseInfo) : Decision()
     }
 
     /**
@@ -158,6 +174,32 @@ object UpdateCheck {
         else Decision.Soft(latest)
     }
 
+    /** Normalisasi fingerprint: buang ':'/spasi/dll, huruf kecil semua. */
+    fun normalizeFingerprint(hex: String): String {
+        val out = StringBuilder(hex.length)
+        for (c in hex) {
+            if (c in '0'..'9' || c in 'a'..'f' || c in 'A'..'F') out.append(c.lowercaseChar())
+        }
+        return out.toString()
+    }
+
+    /** Cocokkan SHA-256 signer terpasang dengan rilis resmi. */
+    fun signerMatches(installedSha256: String): Boolean {
+        val norm = normalizeFingerprint(installedSha256)
+        return norm.isNotEmpty() && norm == OFFICIAL_SIGNER_SHA256
+    }
+
+    /**
+     * Haruskah APK unduhan untuk [tag] dihapus? Ya bila versi terpasang
+     * sudah sama/lebih baru (instal sukses terkonfirmasi) — file tidak
+     * lagi dibutuhkan. Tag invalid = jangan hapus (fail-safe).
+     */
+    fun shouldDeleteDownloadedApk(installed: String, tag: String): Boolean {
+        val tagVersion = tag.trim().removePrefix("v").removePrefix("V")
+        if (parseVersion(tagVersion) == null) return false
+        return compareVersions(installed, tagVersion) >= 0
+    }
+
     // ============ Jaringan (java.net saja, pola sama dengan DataManager) ============
 
     /** GET satu URL, kembalikan body teks bila HTTP 200, null bila gagal. */
@@ -179,17 +221,4 @@ object UpdateCheck {
         }
     }
 
-    /**
-     * Cek update lengkap: rilis terbaru + daftar rilis (untuk hitung
-     * ketertinggalan). Dipanggil dari thread background. Null = tidak ada
-     * update / tidak bisa dicek (fail-open).
-     */
-    fun check(installed: String): Decision {
-        val latestJson = fetchText(LATEST_RELEASE_URL) ?: return Decision.None
-        val latest = parseLatestRelease(latestJson) ?: return Decision.None
-        if (compareVersions(latest.version, installed) <= 0) return Decision.None
-        val tagsJson = fetchText(RELEASES_URL)
-        val tags = if (tagsJson == null) emptyList() else parseReleaseTags(tagsJson)
-        return decide(installed, latest, tags)
-    }
 }

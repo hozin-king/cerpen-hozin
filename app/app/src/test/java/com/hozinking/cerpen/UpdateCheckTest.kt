@@ -3,6 +3,7 @@ package com.hozinking.cerpen
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -196,5 +197,45 @@ class UpdateCheckTest {
         assertNull(UpdateCheck.pickApkAsset(assets))
         assertNull(UpdateCheck.pickApkAsset(null))
         assertNull(UpdateCheck.pickApkAsset(JSONArray()))
+    }
+
+    // ---------- verifikasi SHA signer (v1.1.23, anti-bypass) ----------
+
+    @Test
+    fun `fingerprint resmi dikenali apa pun formatnya`() {
+        val fp = UpdateCheck.OFFICIAL_SIGNER_SHA256
+        assertTrue(UpdateCheck.signerMatches(fp))
+        assertTrue(UpdateCheck.signerMatches(fp.uppercase()))
+        assertTrue(UpdateCheck.signerMatches(fp.chunked(2).joinToString(":")))
+        assertTrue(UpdateCheck.signerMatches("  $fp  "))
+    }
+
+    @Test
+    fun `fingerprint lain atau kosong ditolak`() {
+        assertFalse(UpdateCheck.signerMatches("00".repeat(32)))
+        assertFalse(UpdateCheck.signerMatches(""))
+        assertFalse(UpdateCheck.signerMatches("75ba028f"))
+    }
+
+    @Test
+    fun `normalisasi buang pemisah dan huruf kecil`() {
+        assertEquals("aabbcc", UpdateCheck.normalizeFingerprint("AA:BB:CC"))
+        assertEquals("", UpdateCheck.normalizeFingerprint("::  "))
+    }
+
+    // ---------- hapus APK terinstal (v1.1.23) ----------
+
+    @Test
+    fun `apk dihapus bila versi terpasang sudah sama atau lebih baru`() {
+        assertTrue(UpdateCheck.shouldDeleteDownloadedApk("1.1.23", "v1.1.23"))
+        assertTrue(UpdateCheck.shouldDeleteDownloadedApk("1.1.23", "v1.1.22"))
+        assertTrue(UpdateCheck.shouldDeleteDownloadedApk("1.2.0", "v1.1.22"))
+    }
+
+    @Test
+    fun `apk dipertahankan bila instal belum sukses atau tag invalid`() {
+        assertFalse(UpdateCheck.shouldDeleteDownloadedApk("1.1.21", "v1.1.22"))
+        assertFalse(UpdateCheck.shouldDeleteDownloadedApk("1.1.23", "mismatch"))
+        assertFalse(UpdateCheck.shouldDeleteDownloadedApk("1.1.23", ""))
     }
 }

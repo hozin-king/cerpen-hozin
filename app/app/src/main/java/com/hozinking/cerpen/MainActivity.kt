@@ -5,7 +5,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.KeyEvent
 import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.InputMethodManager
@@ -272,6 +271,10 @@ class MainActivity : AppCompatActivity() {
         // langsung cek manifest GitHub dan unduh yang baru, tanpa aksi
         // pengguna. Gagal (tanpa internet) = diam, konten lama
         // tetap bisa dibaca.
+        // v1.1.23: hapus APK update yang instalnya sudah sukses
+        // (versi terpasang >= tag APK) — file tidak lagi dibutuhkan.
+        // Gagal/batal instal = file tetap ada untuk retry.
+        AppUpdate.deleteInstalledApks(this, BuildConfig.VERSION_NAME)
         checkForAppUpdate()
         autoSyncContent()
     }
@@ -948,6 +951,15 @@ class MainActivity : AppCompatActivity() {
                 }
                 return@Thread
             }
+            // v1.1.23: signer tidak cocok = paksa update meski versi
+            // mengklaim terbaru (jangan toast "Sudah versi terbaru").
+            if (isSignerMismatch()) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    showUpdateDialog(UpdateCheck.Decision.SignerMismatch(latest))
+                }
+                return@Thread
+            }
             if (UpdateCheck.compareVersions(latest.version, installed) <= 0) {
                 runOnUiThread {
                     Toast.makeText(this, "Sudah versi terbaru (v$installed)", Toast.LENGTH_SHORT).show()
@@ -973,6 +985,11 @@ class MainActivity : AppCompatActivity() {
     /** Cek update: onCreate + onResume, throttle maks 1x per 6 jam. */
     private fun checkForAppUpdate() {
         val installed = BuildConfig.VERSION_NAME
+        // v1.1.23: pulihkan dialog yang tertunda (rotasi / proses mati).
+        if (restorePendingUpdateDialog(installed)) return
+        // v1.1.23: cek SHA signer lokal (tanpa jaringan). Bila tidak
+        // cocok, throttle dilewati — mismatch harus dicek tiap buka.
+        val signerMismatch = isSignerMismatch()
         // Force yang tertunda (tersimpan di prefs) tampil lagi tanpa jaringan.
         val forceTag = updatePrefs.getString("force_tag", null)
         val forceUrl = updatePrefs.getString("force_apk_url", null)
@@ -985,13 +1002,24 @@ class MainActivity : AppCompatActivity() {
         }
         val now = System.currentTimeMillis()
         val last = updatePrefs.getLong("last_check_ms", 0)
-        if (now - last < 6 * 60 * 60 * 1000L) return
+        if (!signerMismatch && now - last < 6 * 60 * 60 * 1000L) return
         updatePrefs.edit().putLong("last_check_ms", now).apply()
         Thread {
-            val decision = try {
-                UpdateCheck.check(installed)
-            } catch (e: Exception) {
-                UpdateCheck.Decision.None
+            val latestJson = UpdateCheck.fetchText(UpdateCheck.LATEST_RELEASE_URL)
+            val latest = latestJson?.let { UpdateCheck.parseLatestRelease(it) }
+            val decision = when {
+                // Signer salah = paksa update apa pun kata versi. Tanpa
+                // jaringan, rilis sintetis (tanpa apkUrl) — tombol Update
+                // membuka halaman rilis lewat browser.
+                signerMismatch -> UpdateCheck.Decision.SignerMismatch(
+                    latest ?: UpdateCheck.ReleaseInfo("mismatch", installed, null)
+                )
+                latest == null -> UpdateCheck.Decision.None
+                else -> {
+                    val tagsJson = UpdateCheck.fetchText(UpdateCheck.RELEASES_URL)
+                    val tags = if (tagsJson == null) emptyList() else UpdateCheck.parseReleaseTags(tagsJson)
+                    UpdateCheck.decide(installed, latest, tags)
+                }
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1010,46 +1038,110 @@ class MainActivity : AppCompatActivity() {
                             .apply()
                         showUpdateDialog(decision)
                     }
+                    is UpdateCheck.Decision.SignerMismatch -> showUpdateDialog(decision)
                 }
             }
         }.start()
     }
 
-    /** Tampilkan dialog update (biasa atau paksa). */
+    /** v1.1.23: true bila SHA signer terpasang bisa dibaca DAN tidak cocok resmi. */
+    private fun isSignerMismatch(): Boolean {
+        val sha = AppUpdate.installedSignerSha256(this) ?: return false
+        return !UpdateCheck.signerMatches(sha)
+    }
+
+    /** v1.1.23: hapus penanda dialog update yang tertunda. */
+    private fun clearPendingUpdate() {
+        updatePrefs.edit()
+            .remove("pending_update_tag")
+            .remove("pending_update_version")
+            .remove("pending_update_url")
+            .remove("pending_update_kind")
+            .apply()
+    }
+
+    /**
+     * v1.1.23: tampilkan lagi dialog update yang tertunda (rotasi /
+     * proses mati). True bila dialog ditampilkan — pemanggil tidak perlu
+     * cek lanjut. False bila tidak ada yang tertunda / sudah tidak relevan.
+     */
+    private fun restorePendingUpdateDialog(installed: String): Boolean {
+        val tag = updatePrefs.getString("pending_update_tag", null) ?: return false
+        val version = updatePrefs.getString("pending_update_version", null) ?: return false
+        val url = updatePrefs.getString("pending_update_url", null)
+        val kind = updatePrefs.getString("pending_update_kind", null) ?: return false
+        if (kind == "mismatch") {
+            // Tanda tangan masih salah? Bila sudah resmi, hapus penanda.
+            if (!isSignerMismatch()) {
+                clearPendingUpdate()
+                return false
+            }
+            showUpdateDialog(
+                UpdateCheck.Decision.SignerMismatch(UpdateCheck.ReleaseInfo(tag, version, url))
+            )
+            return true
+        }
+        if (UpdateCheck.compareVersions(installed, version) >= 0) {
+            clearPendingUpdate()
+            return false
+        }
+        if (kind == "soft" && updatePrefs.getString("dismissed_tag", null) == tag) {
+            clearPendingUpdate()
+            return false
+        }
+        val release = UpdateCheck.ReleaseInfo(tag, version, url)
+        showUpdateDialog(
+            if (kind == "force") UpdateCheck.Decision.Force(release)
+            else UpdateCheck.Decision.Soft(release)
+        )
+        return true
+    }
+
+    /** Tampilkan dialog update kaca iOS (biasa, paksa, atau signer mismatch). */
     private fun showUpdateDialog(decision: UpdateCheck.Decision) {
         if (updateDialog?.isShowing == true) return
-        val release = when (decision) {
-            is UpdateCheck.Decision.Soft -> decision.release
-            is UpdateCheck.Decision.Force -> decision.release
+        val (release, kind) = when (decision) {
+            is UpdateCheck.Decision.Soft -> decision.release to "soft"
+            is UpdateCheck.Decision.Force -> decision.release to "force"
+            is UpdateCheck.Decision.SignerMismatch -> decision.release to "mismatch"
             else -> return
         }
-        val forced = decision is UpdateCheck.Decision.Force
-        val builder = AlertDialog.Builder(this)
-            .setTitle(if (forced) "Update wajib" else "Versi baru tersedia")
-            .setMessage(
-                if (forced) {
-                    "Cerpen Hozin v${release.version} sudah tersedia dan versi kamu " +
-                        "sudah tertinggal 3 rilis. Perbarui dulu untuk lanjut memakai aplikasi."
-                } else {
-                    "Cerpen Hozin v${release.version} sudah tersedia " +
-                        "(versi kamu v${BuildConfig.VERSION_NAME}). " +
-                        "Perbarui untuk fitur terbaru dan perbaikan."
-                }
-            )
-            .setPositiveButton(if (forced) "Update Sekarang" else "Update") { _, _ ->
+        val forced = kind != "soft"
+        val title = when (kind) {
+            "force" -> "Update wajib"
+            "mismatch" -> "Aplikasi tidak resmi"
+            else -> "Versi baru tersedia"
+        }
+        val message = when (kind) {
+            "force" -> "Cerpen Hozin v${release.version} sudah tersedia dan versi kamu " +
+                "sudah tertinggal 3 rilis. Perbarui dulu untuk lanjut memakai aplikasi."
+            "mismatch" -> "Aplikasi yang terpasang tidak ditandatangani oleh " +
+                "pengembang resmi Cerpen Hozin. Instal ulang dari rilis resmi " +
+                "agar tetap aman dan bisa menerima update."
+            else -> "Cerpen Hozin v${release.version} sudah tersedia " +
+                "(versi kamu v${BuildConfig.VERSION_NAME}). " +
+                "Perbarui untuk fitur terbaru dan perbaikan."
+        }
+        // Simpan penanda agar dialog tampil lagi setelah rotasi / proses mati.
+        updatePrefs.edit()
+            .putString("pending_update_tag", release.tag)
+            .putString("pending_update_version", release.version)
+            .putString("pending_update_url", release.apkUrl)
+            .putString("pending_update_kind", kind)
+            .apply()
+        val dialog = GlassDialog.create(
+            context = this,
+            title = title,
+            message = message,
+            negative = if (forced) null else GlassDialog.Button("Nanti", accent = false) {
+                updatePrefs.edit().putString("dismissed_tag", release.tag).apply()
+                clearPendingUpdate()
+            },
+            positive = GlassDialog.Button(if (forced) "Update Sekarang" else "Update", accent = true) {
+                clearPendingUpdate()
                 startApkDownload(release)
             }
-            .setCancelable(!forced)
-        if (!forced) {
-            builder.setNegativeButton("Nanti") { _, _ ->
-                updatePrefs.edit().putString("dismissed_tag", release.tag).apply()
-            }
-        }
-        val dialog = builder.create()
-        if (forced) {
-            // Blokir tombol back selama dialog paksa tampil.
-            dialog.setOnKeyListener { _, keyCode, _ -> keyCode == KeyEvent.KEYCODE_BACK }
-        }
+        )
         dialog.setOnDismissListener { updateDialog = null }
         updateDialog = dialog
         dialog.show()

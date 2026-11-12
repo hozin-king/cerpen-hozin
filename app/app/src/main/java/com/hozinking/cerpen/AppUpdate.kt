@@ -2,7 +2,9 @@ package com.hozinking.cerpen
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.util.Log
 import androidx.core.content.FileProvider
@@ -10,6 +12,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 
 /**
  * Unduh + instal APK update DI DALAM aplikasi (v1.1.5).
@@ -41,6 +44,58 @@ object AppUpdate {
         } catch (e: Exception) {
             Log.w(TAG, "hapus APK lama gagal", e)
         }
+    }
+
+    /**
+     * SHA-256 sertifikat penandatangan APK terpasang (v1.1.23, anti-bypass).
+     * Null bila tidak bisa dibaca — pemanggil menganggap cocok (fail-open).
+     */
+    fun installedSignerSha256(context: Context): String? {
+        return try {
+            val pm = context.packageManager
+            val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+            }
+            val signers = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.signingInfo?.apkContentsSigners
+            } else {
+                @Suppress("DEPRECATION")
+                info.signatures
+            }
+            val first = signers?.firstOrNull() ?: return null
+            val digest = MessageDigest.getInstance("SHA-256").digest(first.toByteArray())
+            digest.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "baca signer gagal", e)
+            null
+        }
+    }
+
+    /**
+     * Hapus APK unduhan yang instalnya SUDAH terkonfirmasi sukses
+     * (versi terpasang >= versi tag APK). Dipanggil tiap buka aplikasi —
+     * instal sukses = proses aplikasi mati lalu dibuka lagi sebagai versi
+     * baru. Gagal/batal instal = versi terpasang masih lama, file TETAP
+     * ada untuk retry. Kembalikan jumlah file yang dihapus.
+     */
+    fun deleteInstalledApks(context: Context, installedVersion: String): Int {
+        var deleted = 0
+        try {
+            val dir = File(context.cacheDir, "updates")
+            dir.listFiles()?.forEach { f ->
+                if (!f.name.endsWith(".apk")) return@forEach
+                val tag = f.name.removePrefix("CerpenHozin-").removeSuffix(".apk")
+                if (UpdateCheck.shouldDeleteDownloadedApk(installedVersion, tag) && f.delete()) {
+                    deleted++
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "hapus APK terinstal gagal", e)
+        }
+        return deleted
     }
 
     /**
