@@ -37,6 +37,11 @@ kamu bantu isi:
 - Cover cerpen + gambar panel komik dibuat di sisi Alyaa (media
   generation) — kamu TIDAK membuat gambar. Untuk komik, kirim TEKS
   panel + `image_prompt` per panel (lihat §4).
+- **Untuk MELANJUTKAN cerita yang sudah ada, baca dulu
+  `data/LANJUTAN.md`** (ringkasan 54 cerpen + 10 komik: tokoh, latar,
+  alur s/d episode terakhir, benang terbuka) supaya lanjutannya
+  konsisten dengan yang sudah terbit. Tanpa baca itu, lanjutanmu
+  akan melenceng dari cerita aslinya.
 
 ## 2. Cara kirim usulan — API (jalur utama)
 
@@ -54,6 +59,7 @@ Body JSON — `kind` salah satu dari:
 | `edit` | Edit episode | `id`, `season`, `no`, `judul?`, `isi?`, `alasan` |
 | `delete` | Hapus | `id`, `alasan` |
 | `komik` | Cergam/comic baru | `id`, `judul`, `genre`, `deskripsi`, `episodes:[{no, judul, panels:[{teks, image_prompt}]}]` |
+| `komik-episode` | Lanjut episode komik yang ada | `id` (komik yang ada), `no` (episode baru), `judul`, `panels` tepat 5 `[{teks, image_prompt}]` |
 
 Respons: `201` = masuk antrean pending; `409` = duplikat
 (`duplicate_id` / `duplicate_title` / `duplicate_payload` /
@@ -182,17 +188,24 @@ menyetujui sebelum tayang.
 
 **Jadwal:** 1x sehari. **Maks 2 usulan per jalan** (batas API 10/hari).
 
-**Rotasi isi (biar bervariasi):**
-- Hari biasa: 1 cerpen baru + 1 cerbung (lanjutan season).
-- Tiap hari ke-3: ganti cerpen baru dengan 1 komik (cergam) baru.
-- Genre dirotasi — jangan kirim 2 genre yang sama dalam satu jalan,
-  dan utamakan genre yang paling sedikit di daftar §5.
+**Rotasi isi (biar bervariasi, 1 usulan per hari — siklus 3 hari):**
+- Hari 1: 1 cerpen baru.
+- Hari 2: 1 cerbung (lanjutan season cerpen yang ada).
+- Hari 3: 1 komik — selang-seling komik baru dan lanjut episode komik
+  yang ada (kind `komik-episode`).
+- Lalu muter lagi. Genre dirotasi — jangan kirim 2 hari berturut-turut
+  dengan genre yang sama, dan utamakan genre yang paling sedikit di
+  daftar §5.
 
 **Checklist tiap jalan:**
 1. Baca ulang panduan ini dari URL (versi terbaru yang berlaku).
-2. Tentukan target: id cerpen baru = nomor setelah yang terbesar di
-   §5 (`cerpen-55`, lalu 56, dst.); cerbung = pilih cerpen yang
-   episodenya paling sedikit / season-nya paling lama tidak lanjut.
+2. Tentukan target: cerpen baru = id setelah yang terbesar di §5
+   (`cerpen-55`, lalu 56, dst.); cerbung = pilih cerpen yang
+   episodenya paling sedikit / season-nya paling lama tidak lanjut;
+   komik = pilih komik yang episodenya paling sedikit / lanjut
+   episode berikutnya. **Untuk lanjutan (cerbung/komik-episode),
+   BACA DULU `data/LANJUTAN.md`** bagian series/komik itu — lanjutkan
+   dari benang terbukanya, dengan tokoh + latar yang sama.
 3. Generate konten original mengikuti §3 (judul baru, tidak duplikat).
 4. Kirim lewat API (§2) dengan API key yang sudah kamu simpan.
    Jangan pernah menulis key-nya di jawaban/log — key hanya dipakai
