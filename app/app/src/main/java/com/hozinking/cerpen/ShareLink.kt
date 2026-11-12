@@ -112,7 +112,7 @@ object ShareLink {
             }
             val body = buildCreateBody(contentType, contentId, season, episodeNo, deviceLabel())
             conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-            if (conn.responseCode != HttpURLConnection.HTTP_OK) {
+            if (conn.responseCode != HttpURLConnection.HTTP_OK && conn.responseCode != HttpURLConnection.HTTP_CREATED) {
                 Log.w(TAG, "create gagal: HTTP ${conn.responseCode}")
                 return null
             }
