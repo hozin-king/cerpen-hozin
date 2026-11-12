@@ -1117,7 +1117,8 @@ class MainActivity : AppCompatActivity() {
                 "sudah tertinggal 3 rilis. Perbarui dulu untuk lanjut memakai aplikasi."
             "mismatch" -> "Aplikasi yang terpasang tidak ditandatangani oleh " +
                 "pengembang resmi Cerpen Hozin. Instal ulang dari rilis resmi " +
-                "agar tetap aman dan bisa menerima update."
+                "agar tetap aman dan bisa menerima update. Jika pemasangan " +
+                "ditolak, hapus dulu aplikasi ini lalu pasang yang baru."
             else -> "Cerpen Hozin v${release.version} sudah tersedia " +
                 "(versi kamu v${BuildConfig.VERSION_NAME}). " +
                 "Perbarui untuk fitur terbaru dan perbaikan."
