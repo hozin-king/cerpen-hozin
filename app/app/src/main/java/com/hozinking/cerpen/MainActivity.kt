@@ -808,7 +808,7 @@ class MainActivity : AppCompatActivity() {
         if (now - last < 30 * 60 * 1000L) return
         updatePrefs.edit().putLong("last_auto_sync_ms", now).apply()
         setSyncBusy(true)
-        DataManager.syncFromGithub(this, onProgress = { done, total, label ->
+        DataManager.syncContent(this, onProgress = { done, total, label ->
             showSyncProgress(done, total, label)
         }) { changed ->
             setSyncBusy(false)
@@ -829,7 +829,7 @@ class MainActivity : AppCompatActivity() {
         if (syncBusy) return
         setSyncBusy(true)
         swipeRefresh.isRefreshing = true
-        DataManager.syncFromGithub(this, onProgress = { done, total, label ->
+        DataManager.syncContent(this, onProgress = { done, total, label ->
             showSyncProgress(done, total, label)
         }) { changed ->
             setSyncBusy(false)

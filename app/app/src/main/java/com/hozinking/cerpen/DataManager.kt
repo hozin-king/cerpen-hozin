@@ -8,11 +8,14 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.GZIPOutputStream
 
 /**
  * Semua data (cerpen, berita, gambar) disimpan LOKAL di penyimpanan internal
@@ -509,6 +512,290 @@ object DataManager {
         syncInternal(context, onProgress) { result -> onDone(result.changed) }
     }
 
+    /** Preferensi sync D1: versi manifest terakhir yang berhasil dirakit. */
+    private fun d1Prefs(context: Context) =
+        context.getSharedPreferences("cerpen_d1", Context.MODE_PRIVATE)
+
+    private const val KEY_D1_VERSION = "d1_version"
+
+    /**
+     * Manifest lokal saat ini hasil rakitan D1 (true) atau dari GitHub
+     * (false). Penting: SHA manifest GitHub hanya cocok dengan file
+     * .enc repo — menimpa manifest D1 dengannya membuat 3 JSON lokal
+     * gagal verifikasi SHA (gzip buatan aplikasi beda byte dengan
+     * pipeline), jadi fetchFreshManifest tidak boleh mengambil manifest
+     * GitHub selama flag ini true.
+     */
+    private const val KEY_D1_MANIFEST_ACTIVE = "d1_manifest_active"
+
+    /**
+     * Sync konten — D1 dulu, GitHub bila D1 gagal (v1.1.19).
+     * Tanda tangan sama dengan syncFromGithub supaya pemanggil tidak
+     * berubah; syncFromGithub tetap ada sebagai jalur GitHub murni.
+     */
+    fun syncContent(
+        context: Context,
+        onProgress: SyncProgress? = null,
+        onDone: (Boolean) -> Unit
+    ) {
+        Thread {
+            val result = try {
+                runD1Sync(context, onProgress) ?: runSync(context, onProgress)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                try {
+                    runSync(context, onProgress)
+                } catch (e2: Exception) {
+                    e2.printStackTrace()
+                    SyncResult(false, 0, 0, 0)
+                }
+            }
+            mainHandler.post { onDone(result.changed) }
+        }.start()
+    }
+
+    /**
+     * Inti sync D1: manifest -> dump `all` -> rakit ulang 3 JSON .enc +
+     * manifest lokal -> unduh gambar yang belum ada. Null bila ADA
+     * SATU SAJA kegagalan (offline / kunci / versi / jumlah baris /
+     * dekripsi / tulis disk) — pemanggil memakai jalur GitHub lama.
+     *
+     * Urutan komit: tulis .enc baru ke file .tmp -> unduh gambar ->
+     * pindah .tmp ke tempatnya (semua berhasil dulu) -> tulis manifest
+     * -> simpan versi. Versi BARU disimpan setelah manifest tertulis,
+     * jadi sync yang mati di tengah jalan akan mengulang rebuild
+     * berikutnya (bukan melewatinya).
+     */
+    private fun runD1Sync(context: Context, onProgress: SyncProgress?): SyncResult? {
+        fun report(done: Int, total: Int, label: String) {
+            onProgress?.let { cb -> mainHandler.post { cb(done, total, label) } }
+        }
+        if (!isOnline(context)) return null
+        val key = ContentGuard.getKey()
+        if (key == null) {
+            Log.w(TAG, "sync D1 dibatalkan: kunci native tidak tersedia")
+            return null
+        }
+        report(0, 0, "Memeriksa pembaruan…")
+        val manifest = CerpenApi.fetchManifest(key) ?: return null
+        if (manifest.version <= 0) return null
+        val prefs = d1Prefs(context)
+        val storedVersion = prefs.getInt(KEY_D1_VERSION, 0)
+        val haveFiles = cerpenEncFile(context).exists() && newsEncFile(context).exists() &&
+            komikEncFile(context).exists() && manifestEncFile(context).exists()
+        // Lewati hanya bila versi sama DAN file lokal lolos verifikasi
+        // lawan manifest saat ini (menutup jendela crash / manifest
+        // GitHub yang menimpa di tengah jalan).
+        if (manifest.version == storedVersion && haveFiles &&
+            verifyLocalJsonFiles(context, key)
+        ) {
+            Log.i(TAG, "sync D1: sudah versi ${manifest.version}, lewati")
+            return SyncResult(false, 0, 0, 0)
+        }
+        report(0, 0, "Mengunduh konten…")
+        val dump = CerpenApi.fetchAll(key) ?: return null
+        if (dump.optInt("version", 0) != manifest.version) {
+            Log.w(TAG, "sync D1: versi dump != manifest")
+            return null
+        }
+        val counts = dump.optJSONObject("counts")
+        fun countOk(name: String, arr: JSONArray?): Boolean {
+            if (counts == null || arr == null) return false
+            return counts.optInt(name, -1) == arr.length()
+        }
+        if (!countOk("cerpen_series", dump.optJSONArray("series")) ||
+            !countOk("cerpen_episodes", dump.optJSONArray("episodes")) ||
+            !countOk("cerpen_komik", dump.optJSONArray("komik")) ||
+            !countOk("cerpen_komik_episodes", dump.optJSONArray("komik_episodes")) ||
+            !countOk("cerpen_news", dump.optJSONArray("news"))
+        ) {
+            Log.w(TAG, "sync D1: jumlah baris tidak cocok dengan counts manifest")
+            return null
+        }
+        val oldCerpen = loadCerpen(context).associateBy { it.id }
+        val oldKomik = loadKomik(context).associateBy { it.id }
+        val decrypt: D1Decrypt = { b64 ->
+            try {
+                val raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                ContentCrypto.decrypt(raw, key)?.let { String(it, Charsets.UTF_8) }
+            } catch (e: Exception) {
+                null
+            }
+        }
+        val built = D1ContentBuilder.buildAll(dump, decrypt) ?: return null
+        val newTexts = mapOf(
+            "cerpen.json" to built.cerpenJson,
+            "news.json" to built.newsJson,
+            "komik.json" to built.komikJson
+        )
+        // Tulis .enc baru ke .tmp dulu (manifest lokal menyusul di akhir).
+        // JSON di-gzip dulu seperti pipeline (SHA manifest = SHA byte ter-gzip);
+        // manifest sendiri TIDAK di-gzip (parseManifestBytes tidak meng-gunzip).
+        val manifestJson = JSONObject()
+        val tmpFiles = HashMap<String, File>()
+        for ((jsonName, text) in newTexts) {
+            val gz = gzip(text.toByteArray(Charsets.UTF_8)) ?: return null
+            val enc = ContentCrypto.encrypt(gz, key) ?: return null
+            val file = when (jsonName) {
+                "cerpen.json" -> "cerpen.json.enc"
+                "news.json" -> "news.json.enc"
+                else -> "komik.json.enc"
+            }
+            val tmp = File(dataDir(context), "$file.tmp")
+            try {
+                tmp.writeBytes(enc)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                return null
+            }
+            tmpFiles[file] = tmp
+            manifestJson.put(jsonName, JSONObject().apply {
+                put("sha256", ContentCrypto.sha256Hex(gz))
+                put("file", file)
+            })
+        }
+        // Gambar yang belum ada: cover/panel dari URL .enc repo (verifikasi
+        // GCM saja — tanpa SHA manifest), berita via on-demand seperti biasa.
+        val imagePaths = ArrayList<String>()
+        for ((jsonName, text) in newTexts) imagePaths += collectImagePaths(text, jsonName)
+        val onDemand = HashMap<String, String>()
+        try {
+            for (a in ContentLoader.parseNews(built.newsJson)) {
+                val paths = newsImagePaths(a)
+                if (paths.isNotEmpty() && a.imageUrls.isNotEmpty()) {
+                    onDemand[paths[0]] = a.imageUrls[0]
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        val distinct = imagePaths.distinct()
+        val alreadyHad = distinct.count { isImageOffline(context, it) }
+        var downloaded = 0
+        var failed = 0
+        val missing = distinct.filter { !isImageOffline(context, it) }
+        for ((i, path) in missing.withIndex()) {
+            report(i, missing.size, "Mengunduh gambar")
+            var ok = false
+            val url = built.imageUrls[path]
+            if (url != null) {
+                ok = syncOneImageFromUrl(context, path, url, key)
+                if (ok) {
+                    // Entri manifest untuk gambar ini (SHA plaintext hasil dekripsi).
+                    try {
+                        val plain = ContentCrypto.decrypt(
+                            File(dataDir(context), "$path.enc").readBytes(), key
+                        )
+                        if (plain != null) {
+                            manifestJson.put(path, JSONObject().apply {
+                                put("sha256", ContentCrypto.sha256Hex(plain))
+                                put("file", "$path.enc")
+                            })
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            }
+            if (!ok) {
+                val od = onDemand[path]
+                if (od != null && downloadAndEncryptImage(context, path, od, key)) {
+                    downloaded++
+                } else {
+                    failed++
+                }
+            } else {
+                downloaded++
+            }
+        }
+        if (missing.isNotEmpty()) report(missing.size, missing.size, "Gambar selesai")
+        // Komit: pindah semua .tmp dulu (gagal satu = batal, tanpa tulis
+        // manifest — sync berikutnya mengulang dari keadaan lama yang konsisten).
+        for ((file, tmp) in tmpFiles) {
+            val dest = File(dataDir(context), file)
+            val moved = try {
+                tmp.renameTo(dest) || (tmp.copyTo(dest, overwrite = true).let { tmp.delete(); true })
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+            if (!moved || !dest.exists() || dest.length() == 0L) return null
+        }
+        val manifestEnc = ContentCrypto.encrypt(
+            manifestJson.toString().toByteArray(Charsets.UTF_8), key
+        ) ?: return null
+        try {
+            manifestEncFile(context).writeBytes(manifestEnc)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+        invalidateManifestCache()
+        prefs.edit()
+            .putInt(KEY_D1_VERSION, manifest.version)
+            .putBoolean(KEY_D1_MANIFEST_ACTIVE, true)
+            .apply()
+        val changed = diffAndMarkUpdates(context, oldCerpen, oldKomik, newTexts).let { diffChanged ->
+            if ((oldCerpen.isEmpty() && oldKomik.isEmpty()) && newTexts.isNotEmpty()) {
+                // Sync pertama (belum ada data lokal): konten baru saja tiba.
+                true
+            } else {
+                diffChanged
+            }
+        }
+        migratePlaintextAway(context)
+        return SyncResult(changed, downloaded, alreadyHad, failed)
+    }
+
+    /** Verifikasi 3 JSON lokal lawan manifest saat ini (dekripsi + SHA). */
+    private fun verifyLocalJsonFiles(context: Context, key: ByteArray): Boolean {
+        for (jsonName in listOf("cerpen.json", "news.json", "komik.json")) {
+            val entry = manifestEntry(context, jsonName) ?: return false
+            val enc = readEncBytes(context, entry.second) ?: return false
+            if (ContentCrypto.decryptVerified(enc, key, entry.first) == null) return false
+        }
+        return true
+    }
+
+    private fun gzip(bytes: ByteArray): ByteArray? {
+        return try {
+            ByteArrayOutputStream().use { bos ->
+                GZIPOutputStream(bos).use { it.write(bytes) }
+                bos.toByteArray()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Unduh satu gambar .enc dari URL langsung (bukan dari manifest):
+     * dipakai sync D1 — URL-nya dari cover_url / image_url D1.
+     * Verifikasi GCM saja (tanpa SHA manifest); true bila baru tersimpan.
+     */
+    private fun syncOneImageFromUrl(
+        context: Context,
+        assetPath: String,
+        url: String,
+        key: ByteArray
+    ): Boolean {
+        val dest = File(dataDir(context), "$assetPath.enc")
+        if (dest.exists() && dest.length() > 0) return false
+        val enc = fetchBytes(url) ?: return false
+        if (ContentCrypto.decrypt(enc, key) == null) {
+            Log.w(TAG, "sync $assetPath: verifikasi GCM gagal, file ditolak")
+            return false
+        }
+        return try {
+            dest.parentFile?.mkdirs()
+            dest.writeBytes(enc)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     /** Satu thread background untuk sync; [onDone] di main thread. */
     private fun syncInternal(
         context: Context,
@@ -713,6 +1000,11 @@ object DataManager {
      * offline / gagal — pemanggil memakai manifest cache.
      */
     private fun fetchFreshManifest(context: Context, key: ByteArray): JSONObject? {
+        // Manifest D1 sedang aktif: jangan timpa dengan manifest GitHub —
+        // SHA-nya untuk file .enc repo, tidak cocok dengan hasil rakitan D1.
+        if (d1Prefs(context).getBoolean(KEY_D1_MANIFEST_ACTIVE, false)) {
+            return loadManifest(context)
+        }
         val enc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc") ?: return null
         val text = ContentCrypto.decrypt(enc, key)?.let { String(it, Charsets.UTF_8) }
             ?: return null
@@ -795,6 +1087,9 @@ object DataManager {
         encDest.parentFile?.mkdirs()
         encDest.writeBytes(manifestEnc)
         invalidateManifestCache()
+        // Manifest GitHub menimpa manifest D1: tandai agar fetchFreshManifest
+        // kembali memakai GitHub (SHA file .enc repo cocok lagi).
+        d1Prefs(context).edit().putBoolean(KEY_D1_MANIFEST_ACTIVE, false).apply()
 
         // 2. Tiga JSON — unduh + verifikasi + simpan, lalu kumpulkan
         //    semua jalur gambar yang dirujuk isinya.
