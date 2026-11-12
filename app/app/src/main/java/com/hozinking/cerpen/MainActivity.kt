@@ -91,6 +91,8 @@ class MainActivity : AppCompatActivity() {
     /** Remote config aktif (v1.1.14) + warna aksen override-nya (null = palette.accent). */
     private var remoteConfig: RemoteConfig = RemoteConfig.DEFAULT
     private var remoteAccent: Int? = null
+    /** v1.1.20: token tautan berbagi yang menunggu konten selesai dimuat. */
+    private var pendingShareToken: String? = null
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
     private var syncBusy = false
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
@@ -258,6 +260,9 @@ class MainActivity : AppCompatActivity() {
         applyThemeAndFont()
         showTab(selectedTab)
         loadContent()
+        // v1.1.20: dibuka lewat tautan berbagi — token ditahan sampai
+        // daftar konten selesai dimuat (lihat loadContent), baru di-resolve.
+        pendingShareToken = ShareLink.extractTokenFromPath(intent?.data?.path)
         // v1.1.14: remote config — terapkan cache dulu, lalu fetch
         // non-blocking (gagal = diam, cache/DEFAULT tetap dipakai).
         remoteConfig = RemoteConfig.loadCached(this)
@@ -497,6 +502,12 @@ class MainActivity : AppCompatActivity() {
                 showContinueReading()
                 showHistoryAndBookmarks()
                 refreshGlass()
+                // v1.1.20: konten sudah ada — resolve tautan berbagi yang
+                // menunggu (bila ada); gagal = diam di daftar biasa.
+                pendingShareToken?.let { token ->
+                    pendingShareToken = null
+                    handleShareToken(token)
+                }
             }
         }.start()
     }
@@ -705,6 +716,67 @@ class MainActivity : AppCompatActivity() {
         i.putExtra(ReaderActivity.EXTRA_SEASON, season)
         i.putExtra(ReaderActivity.EXTRA_EPISODE, episode)
         startActivity(i)
+    }
+
+    // ============ DEEP LINK TAUTAN BERBAGI (v1.1.20) ============
+    // Tautan https://hozinking.my.id/s/<token> masuk lewat intent-filter
+    // di manifest. Resolve di thread latar; gagal (404 / tanpa internet
+    // / konten tidak ada) = diam di daftar biasa (fail-open, tanpa crash
+    // dan tanpa dialog error). Berita dicari berdasarkan judul — sama
+    // seperti kunci unduh offline-nya (NewsArticle tidak punya id).
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val token = ShareLink.extractTokenFromPath(intent.data?.path) ?: return
+        if (cerpenData.isNotEmpty() || newsData.isNotEmpty() || komikData.isNotEmpty()) {
+            handleShareToken(token)
+        } else {
+            pendingShareToken = token
+        }
+    }
+
+    /** Resolve token lalu navigasi; gagal = tetap di daftar biasa. */
+    private fun handleShareToken(token: String) {
+        Thread {
+            val resolved = ShareLink.resolveShare(token) ?: return@Thread
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                navigateResolved(resolved)
+            }
+        }.start()
+    }
+
+    private fun navigateResolved(r: ShareLink.ResolvedShare) {
+        when (r.contentType) {
+            "cerpen" -> {
+                val c = cerpenData.firstOrNull { it.id == r.contentId } ?: return
+                val season = r.season
+                val episode = r.episodeNo
+                if (season != null && episode != null && c.episode(season, episode) != null) {
+                    openReader(c.id, season, episode)
+                } else {
+                    openDetail(c)
+                }
+            }
+            "komik" -> {
+                val k = komikData.firstOrNull { it.id == r.contentId } ?: return
+                val episode = r.episodeNo
+                if (episode != null && k.episode(episode) != null) {
+                    val i = Intent(this, KomikReaderActivity::class.java)
+                    i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, k.id)
+                    i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
+                    startActivity(i)
+                } else {
+                    openKomikDetail(k)
+                }
+            }
+            "berita" -> {
+                val a = newsData.firstOrNull { it.title == r.contentId } ?: return
+                openNewsDetail(a)
+            }
+            else -> Unit
+        }
     }
 
     // ============ UNDUH PER KONTEN (v1.1.5) ============

@@ -9,22 +9,44 @@
     android:background="@color/paper"
     android:orientation="vertical">
 
-    <Button
-        android:id="@+id/news_download_button"
+    <!-- v1.1.20: tombol unduh + bagikan berdampingan di atas isi. -->
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="20dp"
         android:layout_marginTop="16dp"
-        android:minWidth="0dp"
-        android:minHeight="0dp"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
-        android:text="⬇ Unduh gambar untuk Offline"
-        android:textColor="@color/white"
-        android:textSize="13sp"
-        android:visibility="gone" />
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/news_download_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="⬇ Unduh gambar untuk Offline"
+            android:textColor="@color/white"
+            android:textSize="13sp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/news_share_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:text="↗ Bagikan"
+            android:textColor="@color/white"
+            android:textSize="13sp" />
+    </LinearLayout>
 
     <ScrollView
         android:id="@+id/news_detail_scroll"

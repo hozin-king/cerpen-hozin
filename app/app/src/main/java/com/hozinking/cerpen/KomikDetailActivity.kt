@@ -30,6 +30,7 @@ class KomikDetailActivity : AppCompatActivity() {
     private lateinit var episodeList: RecyclerView
     private lateinit var loading: ProgressBar
     private lateinit var downloadButton: Button
+    private lateinit var shareButton: Button
     private lateinit var continueButton: Button
     private lateinit var offlineIcon: ImageView
     private lateinit var offlineLabel: TextView
@@ -53,6 +54,7 @@ class KomikDetailActivity : AppCompatActivity() {
         episodeList = findViewById(R.id.episode_list)
         loading = findViewById(R.id.loading)
         downloadButton = findViewById(R.id.detail_download_button)
+        shareButton = findViewById(R.id.detail_share_button)
         continueButton = findViewById(R.id.detail_continue_button)
         offlineIcon = findViewById(R.id.detail_offline_icon)
         offlineLabel = findViewById(R.id.detail_offline_label)
@@ -121,6 +123,11 @@ class KomikDetailActivity : AppCompatActivity() {
         refreshDownloadState()
         refreshContinueButton()
         downloadButton.setOnClickListener { downloadWholeKomik() }
+        // v1.1.20: bagikan tautan ke komik ini (detail komik).
+        shareButton.visibility = View.VISIBLE
+        shareButton.setOnClickListener {
+            ShareLink.shareContent(this, "komik", k.id)
+        }
     }
 
     /** v1.1.13: tombol Lanjutkan bila ada progres baca komik ini

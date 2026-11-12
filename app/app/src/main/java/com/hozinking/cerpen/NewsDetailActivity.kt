@@ -45,6 +45,7 @@ class NewsDetailActivity : AppCompatActivity() {
     private lateinit var titleText: TextView
     private lateinit var metaText: TextView
     private lateinit var downloadButton: Button
+    private lateinit var shareButton: Button
 
     private var article: NewsArticle? = null
     private var downloading = false
@@ -62,6 +63,7 @@ class NewsDetailActivity : AppCompatActivity() {
         titleText = findViewById(R.id.news_title)
         metaText = findViewById(R.id.news_meta)
         downloadButton = findViewById(R.id.news_download_button)
+        shareButton = findViewById(R.id.news_share_button)
 
         val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
         val source = intent.getStringExtra(EXTRA_SOURCE) ?: ""
@@ -83,6 +85,12 @@ class NewsDetailActivity : AppCompatActivity() {
         metaText.text = listOf(source, dateLabel).filter { it.isNotEmpty() }.joinToString(" · ")
 
         downloadButton.setOnClickListener { startDownload() }
+        // v1.1.20: bagikan tautan ke artikel ini (content_id = judul —
+        // NewsArticle tidak punya id; judul juga kunci unduh offline-nya).
+        shareButton.setOnClickListener {
+            val a = article ?: return@setOnClickListener
+            ShareLink.shareContent(this, "berita", a.title)
+        }
         applyThemeAndFont()
         lastTheme = ProgressStore.getTheme(this)
         // Teks dulu (placeholder untuk gambar), gambar menyusul asinkron.
