@@ -37,6 +37,19 @@
                     android:host="hozinking.my.id"
                     android:pathPrefix="/s/" />
             </intent-filter>
+            <!-- v1.1.22: App Links cadangan — tautan berbagi dari host
+                 fallback https://hozin-cms.muchammadhozin.workers.dev/s/<token>
+                 (bila domain utama mati). assetlinks.json di host itu
+                 isinya sama (package + fingerprint rilis). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="hozin-cms.muchammadhozin.workers.dev"
+                    android:pathPrefix="/s/" />
+            </intent-filter>
         </activity>
 
         <activity

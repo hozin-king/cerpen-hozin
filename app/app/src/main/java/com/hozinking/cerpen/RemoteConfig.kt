@@ -120,11 +120,27 @@ data class RemoteConfig(
          * GET endpoint config (panggil dari thread background). Sukses +
          * parse OK -> simpan mentah ke SharedPreferences, kembalikan config.
          * Gagal apa pun -> null, cache tidak disentuh, tanpa toast/error UI.
+         * v1.1.22: host utama mati (gagal koneksi) -> coba SEKALI ke
+         * workers.dev; HTTP error tetap null tanpa fallback.
          */
         fun fetch(context: Context): RemoteConfig? {
-            var conn: HttpURLConnection? = null
             return try {
-                conn = (URL(ENDPOINT).openConnection() as HttpURLConnection).apply {
+                Hosts.withFallback(ENDPOINT) { url -> fetchOnce(context, url) }
+            } catch (e: Exception) {
+                Log.w(TAG, "fetch gagal: ${e.message}")
+                null
+            }
+        }
+
+        /**
+         * Satu percobaan GET config ke [url]. Melempar IOException bila
+         * koneksi gagal (pemicu fallback); null bila server menjawab
+         * HTTP bukan 200 atau body tak bisa diparse.
+         */
+        private fun fetchOnce(context: Context, url: String): RemoteConfig? {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     connectTimeout = TIMEOUT_MS
                     readTimeout = TIMEOUT_MS
                     setRequestProperty("User-Agent", "CerpenHozin/1.1")
@@ -142,10 +158,7 @@ data class RemoteConfig(
                 }
                 context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .edit().putString(PREF_KEY_JSON, body).apply()
-                config
-            } catch (e: Exception) {
-                Log.w(TAG, "fetch gagal: ${e.message}")
-                null
+                return config
             } finally {
                 conn?.disconnect()
             }

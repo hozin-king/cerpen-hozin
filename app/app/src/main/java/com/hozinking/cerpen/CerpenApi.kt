@@ -71,13 +71,17 @@ object CerpenApi {
      * GET satu URL, kembalikan body bila HTTP 200, null bila gagal.
      * 1x ulangi bila gagal (jeda 500 ms) — pola yang sama dengan
      * DataManager.fetchBytes; read timeout lebih longgar karena dump
-     * `all` ~3 MB.
+     * `all` ~3 MB. v1.1.22: ulangan memakai host fallback workers.dev
+     * HANYA bila percobaan pertama gagal koneksi (IOException);
+     * HTTP error (server menjawab) tetap mengulang host yang sama.
      */
     private fun fetchBytes(url: String): ByteArray? {
+        var connectionFailed = false
         repeat(2) { attempt ->
+            val tryUrl = if (attempt == 1 && connectionFailed) Hosts.fallbackUrl(url) else url
             var conn: HttpURLConnection? = null
             try {
-                conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                conn = (URL(tryUrl).openConnection() as HttpURLConnection).apply {
                     connectTimeout = CONNECT_TIMEOUT_MS
                     readTimeout = READ_TIMEOUT_MS
                     setRequestProperty("User-Agent", "CerpenHozin/1.1")
@@ -85,8 +89,11 @@ object CerpenApi {
                 if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                     return conn.inputStream.readBytes()
                 }
+            } catch (e: java.io.IOException) {
+                Log.w(TAG, "fetch gagal ($tryUrl): ${e.message}")
+                connectionFailed = true
             } catch (e: Exception) {
-                Log.w(TAG, "fetch gagal ($url): ${e.message}")
+                Log.w(TAG, "fetch gagal ($tryUrl): ${e.message}")
             } finally {
                 conn?.disconnect()
             }

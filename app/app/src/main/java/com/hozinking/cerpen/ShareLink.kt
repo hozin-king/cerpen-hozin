@@ -100,9 +100,32 @@ object ShareLink {
         season: Int? = null,
         episodeNo: Int? = null
     ): String? {
-        var conn: HttpURLConnection? = null
         return try {
-            conn = (URL("$API_BASE/create").openConnection() as HttpURLConnection).apply {
+            // v1.1.22: host utama mati -> coba SEKALI ke workers.dev.
+            Hosts.withFallback("$API_BASE/create") { url ->
+                createShareOnce(url, contentType, contentId, season, episodeNo)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "create gagal: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Satu percobaan POST create ke [url]. Melempar IOException bila
+     * koneksi gagal (pemicu fallback); null bila server menjawab
+     * HTTP bukan 200/201 atau body tak bisa diparse.
+     */
+    private fun createShareOnce(
+        url: String,
+        contentType: String,
+        contentId: String,
+        season: Int?,
+        episodeNo: Int?
+    ): String? {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
@@ -116,10 +139,7 @@ object ShareLink {
                 Log.w(TAG, "create gagal: HTTP ${conn.responseCode}")
                 return null
             }
-            parseCreateResponse(conn.inputStream.readBytes().toString(Charsets.UTF_8))
-        } catch (e: Exception) {
-            Log.w(TAG, "create gagal: ${e.message}")
-            null
+            return parseCreateResponse(conn.inputStream.readBytes().toString(Charsets.UTF_8))
         } finally {
             conn?.disconnect()
         }
@@ -127,10 +147,25 @@ object ShareLink {
 
     /** GET resolve; kembalikan isi tautan, null bila token tak valid / gagal. */
     fun resolveShare(token: String): ResolvedShare? {
-        var conn: HttpURLConnection? = null
         return try {
-            val url = "$API_BASE/resolve?token=" +
-                URLEncoder.encode(token, Charsets.UTF_8.name())
+            // v1.1.22: host utama mati -> coba SEKALI ke workers.dev.
+            Hosts.withFallback(
+                "$API_BASE/resolve?token=" + URLEncoder.encode(token, Charsets.UTF_8.name())
+            ) { url -> resolveShareOnce(url) }
+        } catch (e: Exception) {
+            Log.w(TAG, "resolve gagal: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Satu percobaan GET resolve ke [url]. Melempar IOException bila
+     * koneksi gagal (pemicu fallback); null bila server menjawab
+     * HTTP bukan 200 atau body tak bisa diparse.
+     */
+    private fun resolveShareOnce(url: String): ResolvedShare? {
+        var conn: HttpURLConnection? = null
+        try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = CONNECT_TIMEOUT_MS
                 readTimeout = READ_TIMEOUT_MS
@@ -140,10 +175,7 @@ object ShareLink {
                 Log.w(TAG, "resolve gagal: HTTP ${conn.responseCode}")
                 return null
             }
-            parseResolve(conn.inputStream.readBytes().toString(Charsets.UTF_8))
-        } catch (e: Exception) {
-            Log.w(TAG, "resolve gagal: ${e.message}")
-            null
+            return parseResolve(conn.inputStream.readBytes().toString(Charsets.UTF_8))
         } finally {
             conn?.disconnect()
         }
