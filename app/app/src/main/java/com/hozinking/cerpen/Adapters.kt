@@ -213,7 +213,9 @@ class EpisodeAdapter(
     private val cerpen: Cerpen,
     private val onClick: (season: Int, episode: Episode) -> Unit,
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
-    private val textScale: Float = 1f
+    private val textScale: Float = 1f,
+    /** v1.1.30: status kunci per episode (null = tanpa info koin). */
+    private val lockOf: ((season: Int, episode: Episode) -> CoinGate.LockState)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     companion object {
@@ -277,7 +279,15 @@ class EpisodeAdapter(
             h.badge.visibility =
                 if (NewContentStore.isEpisodeNew(h.itemView.context, cerpen.id, seasonNo, row.no)) View.VISIBLE else View.GONE
             val done = ProgressStore.isDone(h.itemView.context, cerpen.id, seasonNo, row.no)
-            h.status.text = if (done) "Sudah dibaca ✓" else "Belum dibaca"
+            // v1.1.30: status kunci dari cache koin (gratis/terbuka = tanpa teks).
+            val lockText = lockOf?.invoke(seasonNo, row)?.let { lock ->
+                when (lock) {
+                    is CoinGate.LockState.Locked -> " · Terkunci ${lock.price} koin"
+                    is CoinGate.LockState.Vip -> " · Gratis (VIP)"
+                    else -> ""
+                }
+            } ?: ""
+            h.status.text = (if (done) "Sudah dibaca ✓" else "Belum dibaca") + lockText
             h.status.setTextColor(palette.muted)
             h.itemView.setOnClickListener { onClick(seasonNo, row) }
         }
@@ -540,7 +550,9 @@ class KomikEpisodeAdapter(
     private val onClick: (KomikEpisode) -> Unit,
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
     private val textScale: Float = 1f,
-    private val onDownload: (KomikEpisode, Int) -> Unit = { _, _ -> }
+    private val onDownload: (KomikEpisode, Int) -> Unit = { _, _ -> },
+    /** v1.1.30: status kunci per episode (null = tanpa info koin). */
+    private val lockOf: ((episodeNo: Int) -> CoinGate.LockState)? = null
 ) : RecyclerView.Adapter<KomikEpisodeAdapter.VH>() {
 
     class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
@@ -572,12 +584,20 @@ class KomikEpisodeAdapter(
         val ctx = h.itemView.context
         val (done, total) = DataManager.komikEpisodePanelOfflineCount(ctx, e)
         val offline = DataManager.isKomikEpisodeOffline(ctx, e)
+        // v1.1.30: status kunci dari cache koin (gratis/terbuka = tanpa teks).
+        val lockText = lockOf?.invoke(e.no)?.let { lock ->
+            when (lock) {
+                is CoinGate.LockState.Locked -> " · Terkunci ${lock.price} koin"
+                is CoinGate.LockState.Vip -> " · Gratis (VIP)"
+                else -> ""
+            }
+        } ?: ""
         h.status.text = if (total == 0) {
-            "${e.panels.size} panel"
+            "${e.panels.size} panel$lockText"
         } else if (offline) {
-            "${e.panels.size} panel · Tersimpan offline"
+            "${e.panels.size} panel · Tersimpan offline$lockText"
         } else {
-            "${e.panels.size} panel · $done/$total offline"
+            "${e.panels.size} panel · $done/$total offline$lockText"
         }
         h.status.setTextColor(palette.muted)
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE

@@ -21,7 +21,13 @@ import java.net.URL
 data class RemoteConfig(
     val tabs: List<Tab>,
     val banner: String,
-    val accent: String
+    val accent: String,
+    /**
+     * v1.1.30: link donasi "Dukung kreator" — dari setting CMS
+     * `donate_url` (satu sumber kebenaran dengan /bio). "" = baris
+     * disembunyikan total. JANGAN PERNAH hardcode URL Saweria di APK.
+     */
+    val donateUrl: String = ""
 ) {
     data class Tab(val id: String, val label: String, val visible: Boolean)
 
@@ -44,6 +50,7 @@ data class RemoteConfig(
         private const val TAG = "RemoteConfig"
         private const val TIMEOUT_MS = 8000
         private val ACCENT_REGEX = Regex("^#[0-9A-Fa-f]{6}$")
+        private val DONATE_URL_REGEX = Regex("^https://\\S+$")
 
         /** Id tab yang dikenal, dalam urutan bawaan (0=Cerita, 1=Berita, 2=Komik, 3=Koleksi). */
         val KNOWN_IDS = listOf("cerbung", "berita", "komik", "koleksi")
@@ -51,7 +58,8 @@ data class RemoteConfig(
         val DEFAULT = RemoteConfig(
             tabs = KNOWN_IDS.map { Tab(it, defaultLabel(it), true) },
             banner = "",
-            accent = ""
+            accent = "",
+            donateUrl = ""
         )
 
         fun defaultLabel(id: String): String = when (id) {
@@ -78,7 +86,11 @@ data class RemoteConfig(
                 val banner = obj.optString("banner", "").trim()
                 val accent = obj.optString("accent", "").trim()
                     .takeIf { ACCENT_REGEX.matches(it) } ?: ""
-                RemoteConfig(tabs, banner, accent)
+                // v1.1.30: donate_url hanya dipakai bila https tanpa spasi;
+                // selain itu "" (baris "Dukung kreator" disembunyikan).
+                val donateUrl = obj.optString("donate_url", "").trim()
+                    .takeIf { DONATE_URL_REGEX.matches(it) } ?: ""
+                RemoteConfig(tabs, banner, accent, donateUrl)
             } catch (e: Exception) {
                 // Sengaja tanpa Log: parse murni agar bisa dites di JVM
                 // (android.util.Log stub melempar di unit test); fetch

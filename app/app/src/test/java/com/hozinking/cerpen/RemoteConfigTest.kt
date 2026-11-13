@@ -69,4 +69,20 @@ class RemoteConfigTest {
         assertEquals(1, c.tabs.count { it.id == "berita" })
         assertEquals("Pertama", c.tabs.first { it.id == "berita" }.label)
     }
+
+    // v1.1.30: donate_url — hanya https tanpa spasi; selain itu "".
+    @Test
+    fun donateUrlValidHttpsParses() {
+        val c = RemoteConfig.parse("""{"donate_url":"https://saweria.co/hozinking"}""")!!
+        assertEquals("https://saweria.co/hozinking", c.donateUrl)
+    }
+
+    @Test
+    fun donateUrlHttpOrSpacedOrEmptyBecomesEmpty() {
+        assertEquals("", RemoteConfig.parse("""{"donate_url":"http://saweria.co/x"}""")!!.donateUrl)
+        assertEquals("", RemoteConfig.parse("""{"donate_url":"https://saweria.co/a b"}""")!!.donateUrl)
+        assertEquals("", RemoteConfig.parse("""{"donate_url":""}""")!!.donateUrl)
+        assertEquals("", RemoteConfig.parse("""{}""")!!.donateUrl)
+        assertEquals("", RemoteConfig.DEFAULT.donateUrl)
+    }
 }

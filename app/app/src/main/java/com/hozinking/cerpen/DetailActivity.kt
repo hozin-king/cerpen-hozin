@@ -90,9 +90,43 @@ class DetailActivity : AppCompatActivity() {
         cerpen?.let {
             val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
             val scale = ThemeHelper.fontScale(this)
-            episodeList.adapter = EpisodeAdapter(it, { season, ep -> openReader(it.id, season, ep.no) }, palette, scale)
+            episodeList.adapter = episodeAdapter(it)
             refreshContinueButton()
         }
+        // v1.1.30: validasi ulang unlock dari server tiap kembali (bila
+        // online) — tampilan kunci di-refresh dari /me, bukan cache lama.
+        CoinUi.refreshMeAsync(this) {
+            cerpen?.let {
+                episodeList.adapter = episodeAdapter(it)
+                refreshContinueButton()
+            }
+        }
+    }
+
+    /** v1.1.30: adapter episode + status kunci dari cache koin. */
+    private fun episodeAdapter(c: Cerpen): EpisodeAdapter {
+        val state = CoinStore.snapshot(this)
+        val now = System.currentTimeMillis()
+        val history = ProgressStore.getHistory(this)
+        return EpisodeAdapter(
+            c, { season, ep -> openReader(c.id, season, ep.no) },
+            ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this),
+            lockOf = { season, ep ->
+                CoinGate.lockState(
+                    state, "cerpen", c.id, season, ep.no,
+                    isReadLocally(c.id, season, ep.no, history), now
+                )
+            }
+        )
+    }
+
+    /** Episode sudah dibaca lokal sebelum sistem koin = sudah dimiliki (§3). */
+    private fun isReadLocally(
+        cerpenId: String, season: Int, no: Int,
+        history: List<ProgressStore.HistoryEntry>
+    ): Boolean {
+        if (ProgressStore.isDone(this, cerpenId, season, no)) return true
+        return history.any { it.cerpenId == cerpenId && it.season == season && it.episode == no }
     }
 
     /** Terapkan tema + ukuran font global ke layar ini. */
@@ -119,7 +153,7 @@ class DetailActivity : AppCompatActivity() {
         } else {
             CoverCache.clear(cover, R.drawable.cover_placeholder)
         }
-        episodeList.adapter = EpisodeAdapter(c, { season, ep -> openReader(c.id, season, ep.no) }, ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this))
+        episodeList.adapter = episodeAdapter(c)
         refreshDownloadState()
         refreshContinueButton()
         downloadButton.setOnClickListener { downloadCover() }
@@ -185,12 +219,19 @@ class DetailActivity : AppCompatActivity() {
         }
     }
 
+    /** v1.1.30: buka episode lewat gerbang koin (gratis/terbuka/VIP/beli). */
     private fun openReader(cerpenId: String, season: Int, episode: Int) {
-        val i = Intent(this, ReaderActivity::class.java)
-        i.putExtra(ReaderActivity.EXTRA_CERPEN_ID, cerpenId)
-        i.putExtra(ReaderActivity.EXTRA_SEASON, season)
-        i.putExtra(ReaderActivity.EXTRA_EPISODE, episode)
-        startActivity(i)
+        val locallyRead = ProgressStore.isDone(this, cerpenId, season, episode) ||
+            ProgressStore.getHistory(this).any {
+                it.cerpenId == cerpenId && it.season == season && it.episode == episode
+            }
+        CoinUi.openEpisode(this, "cerpen", cerpenId, season, episode, locallyRead) {
+            val i = Intent(this, ReaderActivity::class.java)
+            i.putExtra(ReaderActivity.EXTRA_CERPEN_ID, cerpenId)
+            i.putExtra(ReaderActivity.EXTRA_SEASON, season)
+            i.putExtra(ReaderActivity.EXTRA_EPISODE, episode)
+            startActivity(i)
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {

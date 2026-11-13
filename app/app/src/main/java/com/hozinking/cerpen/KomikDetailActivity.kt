@@ -93,6 +93,15 @@ class KomikDetailActivity : AppCompatActivity() {
             refreshDownloadState()
             refreshContinueButton()
         }
+        // v1.1.30: validasi ulang unlock dari server tiap kembali (bila
+        // online) — tampilan kunci di-refresh dari /me, bukan cache lama.
+        CoinUi.refreshMeAsync(this) {
+            komik?.let {
+                episodeList.adapter = episodeAdapter(it)
+                refreshDownloadState()
+                refreshContinueButton()
+            }
+        }
     }
 
     /** Terapkan tema + ukuran font global ke layar ini. */
@@ -150,12 +159,23 @@ class KomikDetailActivity : AppCompatActivity() {
         continueButton.setOnClickListener { openReader(k.id, last.episode, panel) }
     }
 
-    private fun episodeAdapter(k: Komik): KomikEpisodeAdapter =
-        KomikEpisodeAdapter(
+    /** v1.1.30: adapter episode + status kunci dari cache koin. */
+    private fun episodeAdapter(k: Komik): KomikEpisodeAdapter {
+        val state = CoinStore.snapshot(this)
+        val now = System.currentTimeMillis()
+        val lastKomik = ProgressStore.getLastKomik(this, k.id)?.episode
+        return KomikEpisodeAdapter(
             k, { ep -> openReader(k.id, ep.no) },
             ThemeHelper.palette(ProgressStore.getTheme(this)), ThemeHelper.fontScale(this),
-            onDownload = { ep, pos -> downloadEpisode(k, ep, pos) }
+            onDownload = { ep, pos -> downloadEpisode(k, ep, pos) },
+            lockOf = { no ->
+                CoinGate.lockState(
+                    state, "komik", k.id, 1, no,
+                    CoinStore.isKomikReadLocally(this, k.id, no) || lastKomik == no, now
+                )
+            }
         )
+    }
 
     /** v1.1.5: tombol Unduh seluruh komik vs ikon sudah-offline. */
     private fun refreshDownloadState() {
@@ -212,12 +232,17 @@ class KomikDetailActivity : AppCompatActivity() {
         }
     }
 
+    /** v1.1.30: buka episode lewat gerbang koin (gratis/terbuka/VIP/beli). */
     private fun openReader(komikId: String, episode: Int, panel: Int = 0) {
-        val i = Intent(this, KomikReaderActivity::class.java)
-        i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, komikId)
-        i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
-        i.putExtra(KomikReaderActivity.EXTRA_PANEL, panel)
-        startActivity(i)
+        val locallyRead = CoinStore.isKomikReadLocally(this, komikId, episode) ||
+            ProgressStore.getLastKomik(this, komikId)?.episode == episode
+        CoinUi.openEpisode(this, "komik", komikId, 1, episode, locallyRead) {
+            val i = Intent(this, KomikReaderActivity::class.java)
+            i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, komikId)
+            i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
+            i.putExtra(KomikReaderActivity.EXTRA_PANEL, panel)
+            startActivity(i)
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {

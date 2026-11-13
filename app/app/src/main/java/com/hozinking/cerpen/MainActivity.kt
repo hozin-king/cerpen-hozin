@@ -21,9 +21,12 @@ import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.android.material.navigation.NavigationView
 import java.io.File
 import java.io.IOException
 
@@ -52,6 +55,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var koleksiTitle: TextView
     private lateinit var koleksiSubtitle: TextView
     private lateinit var koleksiSettingsButton: Button
+    // v1.1.30: navigation drawer + chip saldo koin.
+    private lateinit var drawerLayout: DrawerLayout
+    private lateinit var navView: NavigationView
+    private lateinit var drawerButton: TextView
+    private lateinit var coinChip: TextView
     private lateinit var historyTitle: TextView
     private lateinit var bookmarkTitle: TextView
     private lateinit var allCerpenTitle: TextView
@@ -255,6 +263,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dockCari.setOnClickListener { focusSearch() }
+        // v1.1.30: navigation drawer + chip saldo (lihat setupDrawer).
+        setupDrawer()
 
         // v1.1.12: bubble Cari muncul dengan morphing — scale + overshoot,
         // menempel ke tepi pill (leher cair didekati overlap, tanpa path).
@@ -291,7 +301,14 @@ class MainActivity : AppCompatActivity() {
         // v1.1.24: back di beranda = konfirmasi keluar, bukan langsung tutup.
         // Sub-layar (detail/baca/pengaturan) adalah activity terpisah —
         // back di sana kembali sendiri tanpa menyentuh callback ini.
-        onBackPressedDispatcher.addCallback(this) { showExitDialog() }
+        // v1.1.30: back saat drawer terbuka = tutup drawer dulu.
+        onBackPressedDispatcher.addCallback(this) {
+            if (drawerLayout.isDrawerOpen(GravityCompat.START)) {
+                drawerLayout.closeDrawer(GravityCompat.START)
+            } else {
+                showExitDialog()
+            }
+        }
         autoSyncContent()
     }
 
@@ -321,6 +338,14 @@ class MainActivity : AppCompatActivity() {
             applyKomikList()
         }
         refreshGlass()
+        // v1.1.30: chip saldo + header drawer dari cache, lalu validasi
+        // ulang dari server (/me) bila online.
+        refreshCoinChip()
+        refreshDrawerHeader()
+        CoinUi.refreshMeAsync(this) {
+            refreshCoinChip()
+            refreshDrawerHeader()
+        }
     }
 
     override fun onPause() {
@@ -738,12 +763,105 @@ class MainActivity : AppCompatActivity() {
         startActivity(i)
     }
 
+    // v1.1.30: buka episode cerpen lewat gerbang koin — semua jalur baca
+    // (lanjutkan, riwayat, bookmark, tautan berbagi) lewat sini.
     private fun openReader(cerpenId: String, season: Int, episode: Int) {
-        val i = Intent(this, ReaderActivity::class.java)
-        i.putExtra(ReaderActivity.EXTRA_CERPEN_ID, cerpenId)
-        i.putExtra(ReaderActivity.EXTRA_SEASON, season)
-        i.putExtra(ReaderActivity.EXTRA_EPISODE, episode)
-        startActivity(i)
+        val locallyRead = ProgressStore.isDone(this, cerpenId, season, episode) ||
+            ProgressStore.getHistory(this).any {
+                it.cerpenId == cerpenId && it.season == season && it.episode == episode
+            }
+        CoinUi.openEpisode(this, "cerpen", cerpenId, season, episode, locallyRead) {
+            val i = Intent(this, ReaderActivity::class.java)
+            i.putExtra(ReaderActivity.EXTRA_CERPEN_ID, cerpenId)
+            i.putExtra(ReaderActivity.EXTRA_SEASON, season)
+            i.putExtra(ReaderActivity.EXTRA_EPISODE, episode)
+            startActivity(i)
+        }
+    }
+
+    // ============ NAVIGATION DRAWER (v1.1.30) ============
+    // Drawer hanya merapikan navigasi — semua tujuan memanggil handler
+    // yang sudah ada (showTab / activity lain / cek update). Tidak ada
+    // alur baca/sync/update yang diubah di sini.
+
+    private fun setupDrawer() {
+        drawerLayout = findViewById(R.id.drawer_layout)
+        navView = findViewById(R.id.nav_view)
+        drawerButton = findViewById(R.id.drawer_button)
+        coinChip = findViewById(R.id.coin_chip)
+        drawerButton.setOnClickListener { drawerLayout.openDrawer(GravityCompat.START) }
+        coinChip.setOnClickListener { startActivity(CoinUi.accountIntent(this)) }
+        navView.setNavigationItemSelectedListener { item ->
+            drawerLayout.closeDrawer(GravityCompat.START)
+            when (item.itemId) {
+                R.id.drawer_account -> startActivity(CoinUi.accountIntent(this))
+                R.id.drawer_redeem -> startActivity(CoinUi.accountIntent(this, redeemFirst = true))
+                R.id.drawer_donate -> CoinUi.openDonate(this)
+                R.id.drawer_home -> showTab(0)
+                R.id.drawer_collection -> showTab(3)
+                R.id.drawer_komik -> showTab(2)
+                R.id.drawer_news -> showTab(1)
+                R.id.drawer_leaderboard -> startActivity(Intent(this, LeaderboardActivity::class.java))
+                R.id.drawer_history -> startActivity(Intent(this, HistoryActivity::class.java))
+                R.id.drawer_settings -> startActivity(Intent(this, SettingsActivity::class.java))
+                R.id.drawer_check_update -> checkForAppUpdateManual()
+                R.id.drawer_about -> showAboutDialog()
+            }
+            true
+        }
+        refreshCoinChip()
+        refreshDrawerHeader()
+    }
+
+    /** Chip saldo di header — dari cache CoinStore (di-refresh tiap resume). */
+    private fun refreshCoinChip() {
+        if (!::coinChip.isInitialized) return
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        val state = CoinStore.snapshot(this)
+        coinChip.text = "${state.balance} koin"
+        coinChip.setTextColor(palette.accent)
+        drawerButton.setTextColor(palette.titleInk)
+    }
+
+    /** Header drawer: nama/ID akun (atau Guest + ID perangkat) + saldo + VIP. */
+    private fun refreshDrawerHeader() {
+        if (!::navView.isInitialized) return
+        val header = navView.getHeaderView(0) ?: return
+        val state = CoinStore.snapshot(this)
+        val nameView: TextView = header.findViewById(R.id.drawer_header_name)
+        val idView: TextView = header.findViewById(R.id.drawer_header_id)
+        val balanceView: TextView = header.findViewById(R.id.drawer_header_balance)
+        val vipView: TextView = header.findViewById(R.id.drawer_header_vip)
+        if (state.hasSession) {
+            nameView.text = state.username ?: "Akun"
+            idView.text = "ID: ${state.userId ?: "-"}"
+        } else {
+            nameView.text = "Guest"
+            idView.text = "ID perangkat: ${CoinGate.shortId(CoinStore.deviceId(this))}"
+        }
+        balanceView.text = "${state.balance} koin"
+        val vipLeft = CoinGate.vipRemainingText(state.vipExpiresAtMs, System.currentTimeMillis())
+        if (vipLeft != null) {
+            vipView.visibility = View.VISIBLE
+            vipView.text = "VIP aktif · $vipLeft"
+        } else {
+            vipView.visibility = View.GONE
+        }
+        // Dukung kreator: tampil hanya bila donate_url terisi (config online).
+        navView.menu.findItem(R.id.drawer_donate)?.isVisible =
+            RemoteConfig.loadCached(this).donateUrl.isNotBlank()
+    }
+
+    private fun showAboutDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Cerpen Hozin v${BuildConfig.VERSION_NAME}")
+            .setMessage(
+                "Cerita bersambung Indonesia · baca offline.\n" +
+                    "Koin dipakai untuk membuka episode terkunci; " +
+                    "episode pertama tiap series gratis."
+            )
+            .setPositiveButton("Tutup", null)
+            .show()
     }
 
     // ============ DEEP LINK TAUTAN BERBAGI (v1.1.20) ============
@@ -791,10 +909,15 @@ class MainActivity : AppCompatActivity() {
                 val k = komikData.firstOrNull { it.id == r.contentId } ?: return
                 val episode = r.episodeNo
                 if (episode != null && k.episode(episode) != null) {
-                    val i = Intent(this, KomikReaderActivity::class.java)
-                    i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, k.id)
-                    i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
-                    startActivity(i)
+                    // v1.1.30: tautan berbagi ke episode komik juga lewat gerbang.
+                    val locallyRead = CoinStore.isKomikReadLocally(this, k.id, episode) ||
+                        ProgressStore.getLastKomik(this, k.id)?.episode == episode
+                    CoinUi.openEpisode(this, "komik", k.id, 1, episode, locallyRead) {
+                        val i = Intent(this, KomikReaderActivity::class.java)
+                        i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, k.id)
+                        i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
+                        startActivity(i)
+                    }
                 } else {
                     openKomikDetail(k)
                 }

@@ -2,6 +2,8 @@ package com.hozinking.cerpen
 
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -53,6 +55,21 @@ class KomikReaderActivity : AppCompatActivity() {
     private var downloading = false
     private var chromeVisible = true
 
+    // v1.1.30: pelacak waktu baca (leaderboard) — hanya bila sudah login.
+    private val tracker = ReadingTracker()
+    private val tickHandler = Handler(Looper.getMainLooper())
+    private var trackingActive = false
+    private var bound = false
+    private val tickRunnable: Runnable = Runnable { onTick() }
+
+    /** Satu detak pelacak baca (1 dtk): hitung + flush bila waktunya. */
+    private fun onTick() {
+        if (!trackingActive) return
+        tracker.tick()
+        if (tracker.flushDue()) flushReading()
+        tickHandler.postDelayed(tickRunnable, 1000)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_komik_reader)
@@ -78,7 +95,13 @@ class KomikReaderActivity : AppCompatActivity() {
         recycler.layoutManager = layoutManager
         recycler.setItemViewCacheSize(2)
         recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) = updateProgress()
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) {
+                updateProgress()
+                // v1.1.30: sinyal aktivitas pelacak baca.
+                tracker.noteActive()
+                val pos = layoutManager.findFirstVisibleItemPosition()
+                if (pos > 0) tracker.noteScrolled(pos)
+            }
         })
         recycler.addOnItemTouchListener(TapToToggleChrome())
         downloadButton.setOnClickListener { downloadEpisode() }
@@ -107,11 +130,46 @@ class KomikReaderActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         applyTheme()
+        // v1.1.30: lanjutkan pelacak baca (hanya bila sudah login).
+        if (bound && trackingActive) {
+            tracker.noteVisible(true)
+            tickHandler.removeCallbacks(tickRunnable)
+            tickHandler.postDelayed(tickRunnable, 1000)
+        }
     }
 
     override fun onPause() {
         super.onPause()
         saveProgress()
+        // v1.1.30: hentikan pelacak baca + kirim sisa detik (best-effort).
+        tickHandler.removeCallbacks(tickRunnable)
+        tracker.noteVisible(false)
+        flushReading(force = true)
+    }
+
+    /** v1.1.30: kirim detik baca tertunda ke server (best-effort). */
+    private fun flushReading(force: Boolean = false) {
+        if (currentEpisode == null) return
+        if (!trackingActive) return
+        if (!force && !tracker.flushDue()) return
+        val seconds = tracker.takeFlush()
+        if (seconds <= 0) return
+        Thread {
+            val r = CoinApi.reportReading(this, "komik", komikId, 1, episodeNo, seconds, tracker.maxScroll)
+            if (r.status in 200..299) {
+                tracker.confirmFlushed(r.json?.optInt("stored", 0) ?: 0)
+            }
+        }.start()
+    }
+
+    /** v1.1.30: mulai pelacak baca untuk episode ini (dipanggil dari bind). */
+    private fun startTracking() {
+        trackingActive = CoinStore.hasSession(this)
+        if (!trackingActive) return
+        tracker.noteVisible(true)
+        tracker.noteActive()
+        tickHandler.removeCallbacks(tickRunnable)
+        tickHandler.postDelayed(tickRunnable, 1000)
     }
 
     /** v1.1.13: simpan episode + panel paling atas yang terlihat saat
@@ -123,9 +181,24 @@ class KomikReaderActivity : AppCompatActivity() {
         ProgressStore.saveLastKomik(this, komikId, episodeNo, pos)
     }
 
+    /**
+     * v1.1.30: pertahanan lapis kedua — reader memeriksa ulang gerbang dari
+     * cache sebelum menampilkan isi (menangkap deep-link / intent langsung).
+     * Ditolak -> tutup. Lolos -> tampilkan isi + mulai pelacak baca.
+     */
     private fun bind(komik: Komik, episode: KomikEpisode) {
+        val locallyRead = CoinStore.isKomikReadLocally(this, komik.id, episode.no) ||
+            ProgressStore.getLastKomik(this, komik.id)?.episode == episode.no
+        CoinUi.ensureUnlocked(this, "komik", komik.id, 1, episode.no, locallyRead,
+            onAllowed = { bindContent(komik, episode) },
+            onDenied = { finish() })
+    }
+
+    private fun bindContent(komik: Komik, episode: KomikEpisode) {
         currentKomik = komik
         currentEpisode = episode
+        // v1.1.30: catat episode ini sudah dibaca lokal (grandfathering, §3).
+        CoinStore.markKomikRead(this, komik.id, episode.no)
         supportActionBar?.title = komik.judul
         titleText.text = episode.judul
         metaText.text = "${komik.judul} · Episode ${episode.no} · ${episode.panels.size} panel"
@@ -151,6 +224,10 @@ class KomikReaderActivity : AppCompatActivity() {
             updateProgress()
         }
         updateProgress()
+
+        // v1.1.30: episode tampil (gerbang lolos) — mulai pelacak baca.
+        bound = true
+        startTracking()
     }
 
     /** Panel pertama yang terlihat -> "Panel X/Y" + progress bar. */

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Menu navigation drawer (v1.1.30). Tanpa emoji — label teks saja.
+     Item "Dukung kreator" disembunyikan runtime bila donate_url kosong. -->
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <group android:id="@+id/drawer_group_account">
+        <item
+            android:id="@+id/drawer_account"
+            android:title="Akun" />
+        <item
+            android:id="@+id/drawer_redeem"
+            android:title="Tukar Kode" />
+        <item
+            android:id="@+id/drawer_donate"
+            android:title="Dukung kreator" />
+    </group>
+
+    <group android:id="@+id/drawer_group_content">
+        <item
+            android:id="@+id/drawer_home"
+            android:title="Beranda" />
+        <item
+            android:id="@+id/drawer_collection"
+            android:title="Koleksi" />
+        <item
+            android:id="@+id/drawer_komik"
+            android:title="Komik" />
+        <item
+            android:id="@+id/drawer_news"
+            android:title="Berita" />
+        <item
+            android:id="@+id/drawer_leaderboard"
+            android:title="Papan Peringkat" />
+        <item
+            android:id="@+id/drawer_history"
+            android:title="Riwayat" />
+    </group>
+
+    <group android:id="@+id/drawer_group_app">
+        <item
+            android:id="@+id/drawer_settings"
+            android:title="Pengaturan" />
+        <item
+            android:id="@+id/drawer_check_update"
+            android:title="Periksa Pembaruan" />
+        <item
+            android:id="@+id/drawer_about"
+            android:title="Tentang" />
+    </group>
+
+</menu>

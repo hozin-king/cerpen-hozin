@@ -1,14 +1,13 @@
 package com.hozinking.cerpen
 
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Uji logika murni auto-update v1.1.5 (tanpa Android / tanpa jaringan). */
+/** Uji logika murni auto-update (tanpa Android / tanpa jaringan).
+ *  v1.1.29: cek versi via CMS — format /api/cerpen-version. */
 class UpdateCheckTest {
 
     // ---------- compareVersions ----------
@@ -100,25 +99,14 @@ class UpdateCheckTest {
         assertTrue(d is UpdateCheck.Decision.Soft)
     }
 
-    // ---------- parseLatestRelease / pickApkAsset ----------
+    // ---------- parseLatestRelease (v1.1.29: format CMS /api/cerpen-version) ----------
+    // Catatan: tes bagian ini ditulis ulang di v1.1.30 — versi lama memakai
+    // format GitHub (tag_name + assets + pickApkAsset + parseReleaseTags)
+    // yang sudah tidak ada di UpdateCheck.kt sejak v1.1.29.
 
     @Test
-    fun `parse rilis terbaru ambil tag dan apk CerpenHozin`() {
-        val json = JSONObject().apply {
-            put("tag_name", "v1.1.6")
-            put("assets", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("name", "CerpenHozin-v1.1.6.apk")
-                    put("browser_download_url", "https://example.com/CerpenHozin-v1.1.6.apk")
-                    put("size", 12345)
-                })
-                put(JSONObject().apply {
-                    put("name", "app-release.apk")
-                    put("browser_download_url", "https://example.com/app-release.apk")
-                    put("size", 99999)
-                })
-            })
-        }.toString()
+    fun `parse rilis terbaru format CMS`() {
+        val json = """{"tag":"v1.1.6","version":"1.1.6","apk_url":"https://example.com/CerpenHozin-v1.1.6.apk","published_at":"2026-11-13T00:00:00Z"}"""
         val r = UpdateCheck.parseLatestRelease(json)
         assertEquals("v1.1.6", r?.tag)
         assertEquals("1.1.6", r?.version)
@@ -126,77 +114,23 @@ class UpdateCheckTest {
     }
 
     @Test
-    fun `tanpa apk CerpenHozin fallback ke apk terbesar`() {
-        val json = JSONObject().apply {
-            put("tag_name", "v1.1.6")
-            put("assets", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("name", "kecil.apk")
-                    put("browser_download_url", "https://example.com/kecil.apk")
-                    put("size", 100)
-                })
-                put(JSONObject().apply {
-                    put("name", "besar.apk")
-                    put("browser_download_url", "https://example.com/besar.apk")
-                    put("size", 5000)
-                })
-            })
-        }.toString()
-        assertEquals("https://example.com/besar.apk", UpdateCheck.parseLatestRelease(json)?.apkUrl)
+    fun `apk_url kosong atau hilang menjadi null`() {
+        assertNull(UpdateCheck.parseLatestRelease("""{"tag":"v1.1.6","version":"1.1.6"}""")?.apkUrl)
+        assertNull(UpdateCheck.parseLatestRelease("""{"tag":"v1.1.6","version":"1.1.6","apk_url":""}""")?.apkUrl)
     }
 
     @Test
-    fun `tanpa aset apk apkUrl null (fallback browser di pemanggil)`() {
-        val json = JSONObject().apply {
-            put("tag_name", "v1.1.6")
-            put("assets", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("name", "catatan.txt")
-                    put("browser_download_url", "https://example.com/catatan.txt")
-                    put("size", 10)
-                })
-            })
-        }.toString()
-        val r = UpdateCheck.parseLatestRelease(json)
+    fun `version diturunkan dari tag bila kosong`() {
+        val r = UpdateCheck.parseLatestRelease("""{"tag":"v1.1.6","apk_url":"https://example.com/a.apk"}""")
         assertEquals("v1.1.6", r?.tag)
-        assertNull(r?.apkUrl)
+        assertEquals("1.1.6", r?.version)
     }
 
     @Test
     fun `tag invalid atau json rusak menghasilkan null`() {
-        assertNull(UpdateCheck.parseLatestRelease("""{"tag_name":"ngawur","assets":[]}"""))
-        assertNull(UpdateCheck.parseLatestRelease("""{"assets":[]}"""))
+        assertNull(UpdateCheck.parseLatestRelease("""{"tag":"ngawur"}"""))
+        assertNull(UpdateCheck.parseLatestRelease("""{}"""))
         assertNull(UpdateCheck.parseLatestRelease("bukan json"))
-        assertTrue(UpdateCheck.parseReleaseTags("bukan json").isEmpty())
-    }
-
-    @Test
-    fun `parse daftar tag rilis`() {
-        val json = JSONArray().apply {
-            put(JSONObject().apply { put("tag_name", "v1.1.8") })
-            put(JSONObject().apply { put("tag_name", "v1.1.7") })
-            put(JSONObject().apply { put("tag_name", "v1.1.6") })
-        }.toString()
-        assertEquals(listOf("v1.1.8", "v1.1.7", "v1.1.6"), UpdateCheck.parseReleaseTags(json))
-    }
-
-    @Test
-    fun `pilih aset mengabaikan non-apk dan url kosong`() {
-        val assets = JSONArray().apply {
-            put(JSONObject().apply {
-                put("name", "readme.md")
-                put("browser_download_url", "https://example.com/readme.md")
-                put("size", 999)
-            })
-            put(JSONObject().apply {
-                put("name", "kosong.apk")
-                put("browser_download_url", "")
-                put("size", 9999)
-            })
-        }
-        assertNull(UpdateCheck.pickApkAsset(assets))
-        assertNull(UpdateCheck.pickApkAsset(null))
-        assertNull(UpdateCheck.pickApkAsset(JSONArray()))
     }
 
     // ---------- verifikasi SHA signer (v1.1.23, anti-bypass) ----------

@@ -3,6 +3,8 @@ package com.hozinking.cerpen
 import android.animation.ValueAnimator
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.method.LinkMovementMethod
 import android.view.View
 import android.widget.Button
@@ -45,6 +47,22 @@ class ReaderActivity : AppCompatActivity() {
     private var episodeNo: Int = 1
     private var textSizeSp: Float = 17f
     private var theme: Int = ProgressStore.THEME_DAY
+
+    // v1.1.30: pelacak waktu baca (leaderboard) — hanya bila sudah login.
+    private val tracker = ReadingTracker()
+    private val tickHandler = Handler(Looper.getMainLooper())
+    private var trackingActive = false
+    /** true setelah bindContent (episode tampil) — penjaga restart ticker. */
+    private var bound = false
+    private val tickRunnable: Runnable = Runnable { onTick() }
+
+    /** Satu detak pelacak baca (1 dtk): hitung + flush bila waktunya. */
+    private fun onTick() {
+        if (!trackingActive) return
+        tracker.tick()
+        if (tracker.flushDue()) flushReading()
+        tickHandler.postDelayed(tickRunnable, 1000)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,9 +115,11 @@ class ReaderActivity : AppCompatActivity() {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        // Simpan progres saat scroll.
+        // Simpan progres saat scroll (+ sinyal aktivitas pelacak baca).
         scrollView.viewTreeObserver.addOnScrollChangedListener {
             saveProgress()
+            tracker.noteActive()
+            if (scrollView.scrollY > 0) tracker.noteScrolled(scrollView.scrollY)
         }
 
         loading.visibility = View.VISIBLE
@@ -118,8 +138,23 @@ class ReaderActivity : AppCompatActivity() {
         }.start()
     }
 
+    /**
+     * v1.1.30: pertahanan lapis kedua — reader memeriksa ulang gerbang dari
+     * cache sebelum menampilkan isi (menangkap deep-link / intent langsung).
+     * Ditolak -> tutup. Lolos -> tampilkan isi + mulai pelacak baca.
+     */
     private fun bind(c: Cerpen) {
         val ep = c.episode(seasonNo, episodeNo) ?: run { finish(); return }
+        val locallyRead = ProgressStore.isDone(this, c.id, seasonNo, episodeNo) ||
+            ProgressStore.getHistory(this).any {
+                it.cerpenId == c.id && it.season == seasonNo && it.episode == episodeNo
+            }
+        CoinUi.ensureUnlocked(this, "cerpen", c.id, seasonNo, episodeNo, locallyRead,
+            onAllowed = { bindContent(c, ep) },
+            onDenied = { finish() })
+    }
+
+    private fun bindContent(c: Cerpen, ep: Episode) {
         supportActionBar?.title = c.judul
         titleText.text = ep.judul
         metaText.text = "${c.judul} · Season $seasonNo · Episode ${ep.no}"
@@ -150,12 +185,19 @@ class ReaderActivity : AppCompatActivity() {
             nextButton.text = "Episode Berikutnya: ${next.second.judul}"
             nextButton.setOnClickListener {
                 saveProgress()
-                val i = Intent(this, ReaderActivity::class.java)
-                i.putExtra(EXTRA_CERPEN_ID, c.id)
-                i.putExtra(EXTRA_SEASON, next.first)
-                i.putExtra(EXTRA_EPISODE, next.second.no)
-                startActivity(i)
-                finish()
+                // v1.1.30: episode berikutnya juga lewat gerbang koin.
+                val nextLocallyRead = ProgressStore.isDone(this, c.id, next.first, next.second.no) ||
+                    ProgressStore.getHistory(this).any {
+                        it.cerpenId == c.id && it.season == next.first && it.episode == next.second.no
+                    }
+                CoinUi.openEpisode(this, "cerpen", c.id, next.first, next.second.no, nextLocallyRead) {
+                    val i = Intent(this, ReaderActivity::class.java)
+                    i.putExtra(EXTRA_CERPEN_ID, c.id)
+                    i.putExtra(EXTRA_SEASON, next.first)
+                    i.putExtra(EXTRA_EPISODE, next.second.no)
+                    startActivity(i)
+                    finish()
+                }
             }
         } else {
             nextButton.visibility = View.VISIBLE
@@ -173,6 +215,10 @@ class ReaderActivity : AppCompatActivity() {
                 scrollView.scrollTo(0, y)
             }
         }
+
+        // v1.1.30: episode tampil (gerbang lolos) — mulai pelacak baca.
+        bound = true
+        startTracking()
     }
 
     override fun onResume() {
@@ -184,6 +230,37 @@ class ReaderActivity : AppCompatActivity() {
         applyTheme()
         // v1.1.18: nyalakan lagi denyut yang dimatikan di onPause.
         if (pulseAnimator == null) pulseAnimator = PulseText.start(bodyText)
+        // v1.1.30: lanjutkan pelacak baca (hanya bila sudah login).
+        if (bound && trackingActive) {
+            tracker.noteVisible(true)
+            tickHandler.removeCallbacks(tickRunnable)
+            tickHandler.postDelayed(tickRunnable, 1000)
+        }
+    }
+
+    /** v1.1.30: kirim detik baca tertunda ke server (best-effort). */
+    private fun flushReading(force: Boolean = false) {
+        val c = cerpen ?: return
+        if (!trackingActive) return
+        if (!force && !tracker.flushDue()) return
+        val seconds = tracker.takeFlush()
+        if (seconds <= 0) return
+        Thread {
+            val r = CoinApi.reportReading(this, "cerpen", c.id, seasonNo, episodeNo, seconds, tracker.maxScroll)
+            if (r.status in 200..299) {
+                tracker.confirmFlushed(r.json?.optInt("stored", 0) ?: 0)
+            }
+        }.start()
+    }
+
+    /** v1.1.30: mulai pelacak baca untuk episode ini (dipanggil dari bind). */
+    private fun startTracking() {
+        trackingActive = CoinStore.hasSession(this)
+        if (!trackingActive) return
+        tracker.noteVisible(true)
+        tracker.noteActive()
+        tickHandler.removeCallbacks(tickRunnable)
+        tickHandler.postDelayed(tickRunnable, 1000)
     }
 
     private fun applyTextSize() {
@@ -225,6 +302,12 @@ class ReaderActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveProgress()
+        // v1.1.30: hentikan pelacak baca + kirim sisa detik (best-effort).
+        // trackingActive sengaja TIDAK dimatikan — onResume menyalakan
+        // lagi tickernya bila episode masih tampil.
+        tickHandler.removeCallbacks(tickRunnable)
+        tracker.noteVisible(false)
+        flushReading(force = true)
         // v1.1.18: matikan denyut saat layar tidak terlihat (hemat baterai).
         PulseText.stop(pulseAnimator)
         pulseAnimator = null

@@ -82,6 +82,22 @@
             android:exported="false"
             android:parentActivityName=".KomikDetailActivity" />
 
+        <!-- v1.1.30: layar koin/akun (semua internal, exported=false). -->
+        <activity
+            android:name=".AccountActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".LeaderboardActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".HistoryActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
         <!-- v1.1.5: bagikan APK update yang terunduh ke installer sistem. -->
         <provider
             android:name="androidx.core.content.FileProvider"
