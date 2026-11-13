@@ -186,6 +186,8 @@ class KomikDetailActivity : AppCompatActivity() {
         if (!downloading) downloadButton.text = "⬇ Unduh untuk Offline"
         offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
+        // v1.1.30.1: label offline ikut palet (dulu @color/muted statis).
+        offlineLabel.setTextColor(palette.muted)
         offlineLabel.visibility = if (offline) View.VISIBLE else View.GONE
     }
 

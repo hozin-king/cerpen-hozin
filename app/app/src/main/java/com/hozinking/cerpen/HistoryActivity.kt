@@ -17,6 +17,9 @@ import androidx.appcompat.app.AppCompatActivity
 class HistoryActivity : AppCompatActivity() {
 
     private lateinit var root: View
+    private lateinit var titleText: TextView
+    private lateinit var boughtTitle: TextView
+    private lateinit var readTitle: TextView
     private lateinit var boughtList: LinearLayout
     private lateinit var readList: LinearLayout
     private lateinit var emptyText: TextView
@@ -29,6 +32,9 @@ class HistoryActivity : AppCompatActivity() {
         supportActionBar?.title = "Riwayat"
 
         root = findViewById(R.id.history_root)
+        titleText = findViewById(R.id.history_title)
+        boughtTitle = findViewById(R.id.history_bought_title)
+        readTitle = findViewById(R.id.history_read_title)
         boughtList = findViewById(R.id.history_bought_list)
         readList = findViewById(R.id.history_read_list)
         emptyText = findViewById(R.id.history_empty)
@@ -41,6 +47,12 @@ class HistoryActivity : AppCompatActivity() {
     private fun refreshTheme() {
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         root.setBackgroundColor(palette.bg)
+        // v1.1.30.1: judul + catatan ikut palet (dulu @color/ink/muted statis).
+        titleText.setTextColor(palette.titleInk)
+        boughtTitle.setTextColor(palette.ink)
+        readTitle.setTextColor(palette.ink)
+        emptyText.setTextColor(palette.muted)
+        offlineNote.setTextColor(palette.muted)
     }
 
     private fun load() {

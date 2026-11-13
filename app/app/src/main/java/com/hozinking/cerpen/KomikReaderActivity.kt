@@ -297,6 +297,8 @@ class KomikReaderActivity : AppCompatActivity() {
             h.teks.text = panel.teks
             h.teks.setTextColor(palette.inkSoft)
             h.teks.textSize = 15f * scale
+            // v1.1.30.1: penanda panel belum terunduh ikut palet.
+            h.hint.setTextColor(palette.muted)
             h.hint.visibility = View.GONE
             if (panel.image.isNotEmpty()) {
                 CoverCache.loadInto(

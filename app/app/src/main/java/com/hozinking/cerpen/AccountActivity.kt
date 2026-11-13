@@ -25,6 +25,9 @@ class AccountActivity : AppCompatActivity() {
     }
 
     private lateinit var root: View
+    private lateinit var accountTitle: TextView
+    private lateinit var balanceCard: LinearLayout
+    private lateinit var balanceLabel: TextView
     private lateinit var balanceText: TextView
     private lateinit var balanceUpdatedText: TextView
     private lateinit var loggedInSection: LinearLayout
@@ -34,21 +37,25 @@ class AccountActivity : AppCompatActivity() {
     private lateinit var accountIdCopy: Button
     private lateinit var logoutButton: Button
     private lateinit var loginSection: LinearLayout
+    private lateinit var loginTitle: TextView
     private lateinit var loginUsername: EditText
     private lateinit var loginPassword: EditText
     private lateinit var loginButton: Button
     private lateinit var loginToRegister: TextView
     private lateinit var registerSection: LinearLayout
+    private lateinit var registerTitle: TextView
     private lateinit var registerUsername: EditText
     private lateinit var registerEmail: EditText
     private lateinit var registerPassword: EditText
     private lateinit var registerButton: Button
     private lateinit var registerToLogin: TextView
     private lateinit var verifySection: LinearLayout
+    private lateinit var verifyTitle: TextView
     private lateinit var verifyEmailText: TextView
     private lateinit var verifyCode: EditText
     private lateinit var verifyButton: Button
     private lateinit var verifyResend: TextView
+    private lateinit var redeemTitle: TextView
     private lateinit var redeemCode: EditText
     private lateinit var redeemButton: Button
     private lateinit var redeemResult: TextView
@@ -64,6 +71,9 @@ class AccountActivity : AppCompatActivity() {
         supportActionBar?.title = "Akun"
 
         root = findViewById(R.id.account_root)
+        accountTitle = findViewById(R.id.account_title)
+        balanceCard = findViewById(R.id.account_balance_card)
+        balanceLabel = findViewById(R.id.account_balance_label)
         balanceText = findViewById(R.id.account_balance)
         balanceUpdatedText = findViewById(R.id.account_balance_updated)
         loggedInSection = findViewById(R.id.account_logged_in)
@@ -73,21 +83,25 @@ class AccountActivity : AppCompatActivity() {
         accountIdCopy = findViewById(R.id.account_id_copy)
         logoutButton = findViewById(R.id.account_logout)
         loginSection = findViewById(R.id.account_login_section)
+        loginTitle = findViewById(R.id.login_title)
         loginUsername = findViewById(R.id.login_username)
         loginPassword = findViewById(R.id.login_password)
         loginButton = findViewById(R.id.login_button)
         loginToRegister = findViewById(R.id.login_to_register)
         registerSection = findViewById(R.id.account_register_section)
+        registerTitle = findViewById(R.id.register_title)
         registerUsername = findViewById(R.id.register_username)
         registerEmail = findViewById(R.id.register_email)
         registerPassword = findViewById(R.id.register_password)
         registerButton = findViewById(R.id.register_button)
         registerToLogin = findViewById(R.id.register_to_login)
         verifySection = findViewById(R.id.account_verify_section)
+        verifyTitle = findViewById(R.id.verify_title)
         verifyEmailText = findViewById(R.id.verify_email_text)
         verifyCode = findViewById(R.id.verify_code)
         verifyButton = findViewById(R.id.verify_button)
         verifyResend = findViewById(R.id.verify_resend)
+        redeemTitle = findViewById(R.id.redeem_title)
         redeemCode = findViewById(R.id.redeem_code)
         redeemButton = findViewById(R.id.redeem_button)
         redeemResult = findViewById(R.id.redeem_result)
@@ -131,6 +145,27 @@ class AccountActivity : AppCompatActivity() {
     private fun refresh() {
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         root.setBackgroundColor(palette.bg)
+        // v1.1.30.1: kartu + kolom input + judul ikut palet — dulu statis
+        // putih (card_bg) / tinta gelap sementara tema Malam gelap.
+        accountTitle.setTextColor(palette.titleInk)
+        balanceCard.background = ThemeHelper.cardBackground(this, palette)
+        balanceLabel.setTextColor(palette.muted)
+        loginTitle.setTextColor(palette.ink)
+        registerTitle.setTextColor(palette.ink)
+        verifyTitle.setTextColor(palette.ink)
+        redeemTitle.setTextColor(palette.ink)
+        verifyEmailText.setTextColor(palette.muted)
+        redeemResult.setTextColor(palette.muted)
+        statusText.setTextColor(palette.muted)
+        loginToRegister.setTextColor(palette.accent)
+        registerToLogin.setTextColor(palette.accent)
+        verifyResend.setTextColor(palette.accent)
+        for (input in listOf(loginUsername, loginPassword, registerUsername,
+            registerEmail, registerPassword, verifyCode, redeemCode)) {
+            input.background = ThemeHelper.cardBackground(this, palette)
+            input.setTextColor(palette.ink)
+            input.setHintTextColor(palette.muted)
+        }
         val state = CoinStore.snapshot(this)
         balanceText.text = "${state.balance} koin"
         balanceText.setTextColor(palette.ink)

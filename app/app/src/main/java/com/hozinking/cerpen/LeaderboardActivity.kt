@@ -19,6 +19,8 @@ import androidx.recyclerview.widget.RecyclerView
 class LeaderboardActivity : AppCompatActivity() {
 
     private lateinit var root: View
+    private lateinit var titleText: TextView
+    private lateinit var subtitleText: TextView
     private lateinit var weeklyButton: Button
     private lateinit var allButton: Button
     private lateinit var list: RecyclerView
@@ -35,6 +37,8 @@ class LeaderboardActivity : AppCompatActivity() {
         supportActionBar?.title = "Papan Peringkat"
 
         root = findViewById(R.id.leaderboard_root)
+        titleText = findViewById(R.id.leaderboard_title)
+        subtitleText = findViewById(R.id.leaderboard_subtitle)
         weeklyButton = findViewById(R.id.leaderboard_weekly)
         allButton = findViewById(R.id.leaderboard_all)
         list = findViewById(R.id.leaderboard_list)
@@ -61,6 +65,10 @@ class LeaderboardActivity : AppCompatActivity() {
     private fun refresh() {
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         root.setBackgroundColor(palette.bg)
+        // v1.1.30.1: judul + subjudul + teks kosong ikut palet.
+        titleText.setTextColor(palette.titleInk)
+        subtitleText.setTextColor(palette.muted)
+        emptyText.setTextColor(palette.muted)
         stylePeriodButton(weeklyButton, period == "weekly", palette)
         stylePeriodButton(allButton, period == "all", palette)
     }
@@ -110,6 +118,8 @@ class LeaderboardActivity : AppCompatActivity() {
         override fun onBindViewHolder(h: VH, pos: Int) {
             val e = items[pos]
             val palette = ThemeHelper.palette(ProgressStore.getTheme(this@LeaderboardActivity))
+            // v1.1.30.1: baris ikut palet — dulu card_bg statis putih.
+            h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
             h.rank.text = e.rank.toString()
             h.rank.setTextColor(palette.accent)
             h.username.text = e.username

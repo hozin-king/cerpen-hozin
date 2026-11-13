@@ -2,6 +2,7 @@ package com.hozinking.cerpen
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -68,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var komikTitle: TextView
     private lateinit var komikSubtitle: TextView
     private lateinit var continueSection: LinearLayout
+    private lateinit var continueLabel: TextView
     private lateinit var continueTitle: TextView
     private lateinit var continueMeta: TextView
     private lateinit var continueButton: Button
@@ -172,6 +174,7 @@ class MainActivity : AppCompatActivity() {
         komikTitle = findViewById(R.id.komik_title)
         komikSubtitle = findViewById(R.id.komik_subtitle)
         continueSection = findViewById(R.id.continue_section)
+        continueLabel = findViewById(R.id.continue_label)
         continueTitle = findViewById(R.id.continue_title)
         continueMeta = findViewById(R.id.continue_meta)
         continueButton = findViewById(R.id.continue_button)
@@ -375,6 +378,9 @@ class MainActivity : AppCompatActivity() {
         koleksiSubtitle.setTextColor(palette.muted)
         continueTitle.setTextColor(palette.ink)
         continueMeta.setTextColor(palette.muted)
+        continueLabel.setTextColor(palette.accent)
+        // v1.1.30.1: teks progres sync ikut palet (dulu @color/muted statis).
+        syncProgressText.setTextColor(palette.muted)
         searchInput.setTextColor(palette.ink)
         searchInput.setHintTextColor(palette.muted)
         searchInput.background = ThemeHelper.cardBackground(this, palette)
@@ -819,6 +825,8 @@ class MainActivity : AppCompatActivity() {
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val state = CoinStore.snapshot(this)
         coinChip.text = "${state.balance} koin"
+        // v1.1.30.1: chip ikut palet — dulu card_bg statis putih di tema Malam.
+        coinChip.background = ThemeHelper.cardBackground(this, palette)
         coinChip.setTextColor(palette.accent)
         drawerButton.setTextColor(palette.titleInk)
     }
@@ -827,11 +835,21 @@ class MainActivity : AppCompatActivity() {
     private fun refreshDrawerHeader() {
         if (!::navView.isInitialized) return
         val header = navView.getHeaderView(0) ?: return
+        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+        // v1.1.30.1: drawer ikut palet — dulu @color/paper statis terang
+        // (latar + header) di tema Malam.
+        navView.setBackgroundColor(palette.bg)
+        navView.itemTextColor = ColorStateList.valueOf(palette.ink)
+        header.setBackgroundColor(palette.card)
         val state = CoinStore.snapshot(this)
         val nameView: TextView = header.findViewById(R.id.drawer_header_name)
         val idView: TextView = header.findViewById(R.id.drawer_header_id)
         val balanceView: TextView = header.findViewById(R.id.drawer_header_balance)
         val vipView: TextView = header.findViewById(R.id.drawer_header_vip)
+        nameView.setTextColor(palette.titleInk)
+        idView.setTextColor(palette.muted)
+        balanceView.setTextColor(palette.accent)
+        vipView.setTextColor(palette.accent)
         if (state.hasSession) {
             nameView.text = state.username ?: "Akun"
             idView.text = "ID: ${state.userId ?: "-"}"

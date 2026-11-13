@@ -37,9 +37,12 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var versionText: TextView
 
     // v1.1.30: kelompok Akun.
+    private lateinit var accountCard: LinearLayout
+    private lateinit var deviceIdLabel: TextView
     private lateinit var deviceIdValue: TextView
     private lateinit var deviceIdCopy: Button
     private lateinit var accountRow: LinearLayout
+    private lateinit var accountIdLabel: TextView
     private lateinit var accountIdValue: TextView
     private lateinit var accountIdCopy: Button
     private lateinit var usernameText: TextView
@@ -50,8 +53,17 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var redeemButton: Button
     private lateinit var logoutButton: Button
     private lateinit var privacyRow: LinearLayout
+    private lateinit var privacyLabel: TextView
     private lateinit var privacySwitch: Switch
     private lateinit var donateRow: LinearLayout
+    private lateinit var donateTitle: TextView
+    private lateinit var donateSubtitle: TextView
+    // v1.1.30.1: judul kelompok + label Konten (dulu statis @color/ink).
+    private lateinit var sectionAccount: TextView
+    private lateinit var sectionContent: TextView
+    private lateinit var sectionApp: TextView
+    private lateinit var sizeLabel: TextView
+    private lateinit var themeLabel: TextView
 
     private var textSizeSp: Float = 17f
     private var theme: Int = ProgressStore.THEME_DAY
@@ -75,9 +87,12 @@ class SettingsActivity : AppCompatActivity() {
         checkUpdateButton = findViewById(R.id.set_check_update)
         versionText = findViewById(R.id.settings_version)
 
+        deviceIdLabel = findViewById(R.id.acc_device_id_label)
         deviceIdValue = findViewById(R.id.acc_device_id_value)
         deviceIdCopy = findViewById(R.id.acc_device_id_copy)
+        accountCard = findViewById(R.id.acc_account_card)
         accountRow = findViewById(R.id.acc_account_row)
+        accountIdLabel = findViewById(R.id.acc_account_id_label)
         accountIdValue = findViewById(R.id.acc_account_id_value)
         accountIdCopy = findViewById(R.id.acc_account_id_copy)
         usernameText = findViewById(R.id.acc_username)
@@ -88,8 +103,16 @@ class SettingsActivity : AppCompatActivity() {
         redeemButton = findViewById(R.id.acc_redeem_button)
         logoutButton = findViewById(R.id.acc_logout_button)
         privacyRow = findViewById(R.id.acc_privacy_row)
+        privacyLabel = findViewById(R.id.acc_privacy_label)
         privacySwitch = findViewById(R.id.acc_privacy_switch)
         donateRow = findViewById(R.id.acc_donate_row)
+        donateTitle = findViewById(R.id.acc_donate_title)
+        donateSubtitle = findViewById(R.id.acc_donate_subtitle)
+        sectionAccount = findViewById(R.id.settings_section_account)
+        sectionContent = findViewById(R.id.settings_section_content)
+        sectionApp = findViewById(R.id.settings_section_app)
+        sizeLabel = findViewById(R.id.set_size_label)
+        themeLabel = findViewById(R.id.set_theme_label)
 
         textSizeSp = ProgressStore.getTextSizeSp(this)
         theme = ProgressStore.getTheme(this)
@@ -218,6 +241,20 @@ class SettingsActivity : AppCompatActivity() {
         styleThemeButton(sepiaButton, theme == ProgressStore.THEME_SEPIA, palette)
 
         // ---- Kelompok Akun (v1.1.30) ----
+        // v1.1.30.1: kartu + label ikut palet — dulu kartu statis putih
+        // (card_bg) sementara teks runtime terang di tema Malam.
+        accountCard.background = ThemeHelper.cardBackground(this, palette)
+        donateRow.background = ThemeHelper.cardBackground(this, palette)
+        sectionAccount.setTextColor(palette.ink)
+        sectionContent.setTextColor(palette.ink)
+        sectionApp.setTextColor(palette.ink)
+        sizeLabel.setTextColor(palette.ink)
+        themeLabel.setTextColor(palette.ink)
+        deviceIdLabel.setTextColor(palette.muted)
+        accountIdLabel.setTextColor(palette.muted)
+        privacyLabel.setTextColor(palette.ink)
+        donateTitle.setTextColor(palette.ink)
+        donateSubtitle.setTextColor(palette.muted)
         val state = CoinStore.snapshot(this)
         val now = System.currentTimeMillis()
         deviceIdValue.text = CoinStore.deviceId(this)

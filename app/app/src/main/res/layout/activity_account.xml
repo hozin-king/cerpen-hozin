@@ -15,6 +15,7 @@
         android:padding="16dp">
 
         <TextView
+            android:id="@+id/account_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Akun"
@@ -24,6 +25,7 @@
 
         <!-- Saldo -->
         <LinearLayout
+            android:id="@+id/account_balance_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -32,6 +34,7 @@
             android:padding="14dp">
 
             <TextView
+                android:id="@+id/account_balance_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Saldo koin"
@@ -127,6 +130,7 @@
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/login_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Masuk"
@@ -189,6 +193,7 @@
             android:visibility="gone">
 
             <TextView
+                android:id="@+id/register_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Daftar akun baru"
@@ -264,6 +269,7 @@
             android:visibility="gone">
 
             <TextView
+                android:id="@+id/verify_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Verifikasi email"
@@ -313,6 +319,7 @@
 
         <!-- Tukar kode -->
         <TextView
+            android:id="@+id/redeem_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"

@@ -14,6 +14,7 @@
         android:padding="16dp">
 
         <TextView
+            android:id="@+id/history_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Riwayat"
@@ -22,6 +23,7 @@
             android:textStyle="bold" />
 
         <TextView
+            android:id="@+id/history_bought_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
@@ -38,6 +40,7 @@
             android:orientation="vertical" />
 
         <TextView
+            android:id="@+id/history_read_title"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
