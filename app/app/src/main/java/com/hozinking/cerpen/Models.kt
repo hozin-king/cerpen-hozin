@@ -430,19 +430,61 @@ object CoverCache {
      * lain (tag berubah), hasil dibuang — tidak ada gambar nyasar.
      * v1.1.25: GIF (cover/panel animasi) diputar via AnimatedImageDrawable
      * (ImageDecoder, API 28+); di bawah API 28 tampil frame pertama.
+     * v1.1.29 progressive: bila full belum ada di lokal, tampilkan
+     * THUMBNAIL CMS dulu (kecil, cepat), lalu unduh FULL di latar dan
+     * ganti otomatis begitu full siap. Tiap tahap hanya tampil setelah
+     * byte lengkap + dekripsi GCM lolos — tidak pernah tampil gambar
+     * rusak/setengah diunduh. Bila thumb juga belum ada (404, gambar
+     * lama tanpa thumb), perilaku lama berlaku: placeholder sampai
+     * full siap. Full yang terunduh disimpan .enc lokal oleh
+     * DataManager.fetchCmsImageBytes, jadi tampil berikutnya lokal.
      */
     fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int) {
         stopAnimated(view)
         view.setImageResource(placeholderRes)
         view.tag = assetPath
         loader.execute {
+            // Jalur lama: lokal dulu (offline, cepat, GIF tetap animasi).
             val d = getDrawable(context, assetPath, reqWidth)
-            if (view.tag != assetPath) return@execute // sudah di-recycle
-            view.post {
-                if (view.tag == assetPath && d != null) {
-                    view.setImageDrawable(d)
-                    (d as? AnimatedImageDrawable)?.start()
+            if (d != null) {
+                if (view.tag != assetPath) return@execute
+                view.post {
+                    if (view.tag == assetPath) {
+                        view.setImageDrawable(d)
+                        (d as? AnimatedImageDrawable)?.start()
+                    }
                 }
+                return@execute
+            }
+            try {
+                val thumbBytes = DataManager.fetchCmsImageBytes(context, assetPath, thumb = true)
+                if (thumbBytes != null && view.tag == assetPath) {
+                    val thumbBmp = decodeBytes(thumbBytes, reqWidth)
+                    if (thumbBmp != null) {
+                        view.post {
+                            if (view.tag == assetPath) {
+                                stopAnimated(view)
+                                view.setImageDrawable(BitmapDrawable(context.resources, thumbBmp))
+                            }
+                        }
+                    }
+                }
+                if (view.tag != assetPath) return@execute
+                val fullBytes = DataManager.fetchCmsImageBytes(context, assetPath, thumb = false)
+                if (fullBytes == null) return@execute
+                // Full sudah tersimpan .enc lokal -> tampil lewat jalur
+                // lokal biasa (cache + GIF animasi).
+                val full = getDrawable(context, assetPath, reqWidth)
+                if (full != null && view.tag == assetPath) {
+                    view.post {
+                        if (view.tag == assetPath) {
+                            view.setImageDrawable(full)
+                            (full as? AnimatedImageDrawable)?.start()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Fail-open: placeholder tetap tampil.
             }
         }
     }
@@ -525,6 +567,16 @@ object CoverCache {
      */
     private fun decodeSampled(context: Context, assetPath: String, reqWidth: Int): Bitmap? {
         val bytes = DataManager.decryptImageBytes(context, assetPath) ?: return null
+        return decodeBytes(bytes, reqWidth)
+    }
+
+    /**
+     * Dekode byte gambar (sudah terdekripsi) jadi Bitmap ter-downsample
+     * ke [reqWidth]. Dipakai jalur progressive (thumb/full dari CMS)
+     * maupun decodeSampled. Null bila byte bukan gambar valid — tidak
+     * pernah mengembalikan bitmap setengah/rusak.
+     */
+    fun decodeBytes(bytes: ByteArray, reqWidth: Int): Bitmap? {
         return try {
             val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)

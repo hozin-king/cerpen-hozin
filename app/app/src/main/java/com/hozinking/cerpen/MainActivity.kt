@@ -25,6 +25,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import java.io.File
+import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
@@ -1020,7 +1021,14 @@ class MainActivity : AppCompatActivity() {
         val installed = BuildConfig.VERSION_NAME
         updatePrefs.edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
         Thread {
-            val latestJson = UpdateCheck.fetchText(UpdateCheck.LATEST_RELEASE_URL)
+            // v1.1.29: versi dari CMS Worker (fallback workers.dev bila
+            // hozinking.my.id gagal koneksi). Daftar tag tidak lagi
+            // diambil — decide(tags kosong) = Soft, sesuai logika lama.
+            val latestJson = try {
+                Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) { UpdateCheck.fetchText(it) }
+            } catch (e: IOException) {
+                null
+            }
             if (latestJson == null) {
                 runOnUiThread {
                     Toast.makeText(this, "Gagal memeriksa pembaruan — periksa internet lalu coba lagi", Toast.LENGTH_LONG).show()
@@ -1049,9 +1057,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 return@Thread
             }
-            val tagsJson = UpdateCheck.fetchText(UpdateCheck.RELEASES_URL)
-            val tags = if (tagsJson == null) emptyList() else UpdateCheck.parseReleaseTags(tagsJson)
-            val decision = UpdateCheck.decide(installed, latest, tags)
+            val decision = UpdateCheck.decide(installed, latest, emptyList())
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (decision is UpdateCheck.Decision.Force) {
@@ -1088,7 +1094,11 @@ class MainActivity : AppCompatActivity() {
         if (!signerMismatch && now - last < 6 * 60 * 60 * 1000L) return
         updatePrefs.edit().putLong("last_check_ms", now).apply()
         Thread {
-            val latestJson = UpdateCheck.fetchText(UpdateCheck.LATEST_RELEASE_URL)
+            val latestJson = try {
+                Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) { UpdateCheck.fetchText(it) }
+            } catch (e: IOException) {
+                null
+            }
             val latest = latestJson?.let { UpdateCheck.parseLatestRelease(it) }
             val decision = when {
                 // Signer salah = paksa update apa pun kata versi. Tanpa
@@ -1098,11 +1108,7 @@ class MainActivity : AppCompatActivity() {
                     latest ?: UpdateCheck.ReleaseInfo("mismatch", installed, null)
                 )
                 latest == null -> UpdateCheck.Decision.None
-                else -> {
-                    val tagsJson = UpdateCheck.fetchText(UpdateCheck.RELEASES_URL)
-                    val tags = if (tagsJson == null) emptyList() else UpdateCheck.parseReleaseTags(tagsJson)
-                    UpdateCheck.decide(installed, latest, tags)
-                }
+                else -> UpdateCheck.decide(installed, latest, emptyList())
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread

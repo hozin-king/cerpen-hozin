@@ -134,15 +134,32 @@ class NewsDetailActivity : AppCompatActivity() {
         }
     }
 
-    /** Muat bitmap gambar artikel di thread latar, lalu bangun ulang isi. */
+    /**
+     * Muat bitmap gambar artikel di thread latar, lalu bangun ulang isi.
+     * v1.1.29 progressive: tahap 1 tampilkan lokal / thumbnail CMS,
+     * tahap 2 unduh full di latar (disimpan .enc lokal) lalu bangun
+     * ulang bila ada gambar penuh yang baru tiba. Tidak pernah tampil
+     * gambar rusak/setengah — tiap bitmap hanya dipakai setelah byte
+     * lengkap + dekripsi GCM lolos.
+     */
     private fun loadImages() {
         val a = article ?: return
         if (a.images.isEmpty()) return
         Thread {
-            val bitmaps: List<Bitmap?> = a.images.map { path ->
-                if (path.isNotEmpty()) CoverCache.get(this, "news/$path", 800) else null
+            val first: List<Bitmap?> = a.images.map { path ->
+                if (path.isEmpty()) null
+                else CoverCache.get(this, "news/$path", 800)
+                    ?: DataManager.fetchCmsImageBytes(this, "news/$path", true)
+                        ?.let { CoverCache.decodeBytes(it, 800) }
             }
-            runOnUiThread { buildBody(bitmaps) }
+            runOnUiThread { buildBody(first) }
+            val full: List<Bitmap?> = a.images.mapIndexed { i, path ->
+                if (path.isEmpty()) null
+                else if (DataManager.isImageOffline(this, "news/$path")) first[i]
+                else DataManager.fetchCmsImageBytes(this, "news/$path", false)
+                    ?.let { CoverCache.decodeBytes(it, 800) } ?: first[i]
+            }
+            if (full != first) runOnUiThread { buildBody(full) }
         }.start()
     }
 

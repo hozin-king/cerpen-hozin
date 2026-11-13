@@ -1,17 +1,19 @@
 package com.hozinking.cerpen
 
-import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * Cek update aplikasi (v1.1.5): bandingkan versi terpasang dengan rilis
- * GitHub terbaru. Sumber OTOMATIS — GitHub Releases API, tanpa file
- * versi manual dan tanpa hardcode URL APK per rilis.
+ * Cek update aplikasi (v1.1.29): bandingkan versi terpasang dengan versi
+ * terbaru dari CMS Worker (endpoint /api/cerpen-version) — BUKAN lagi
+ * GitHub Releases API, supaya repo boleh privat kapan pun tanpa merusak
+ * cek update. Sumber OTOMATIS — tanpa file versi manual dan tanpa
+ * hardcode URL APK per rilis.
  *
  * Dialog update ini HANYA untuk update KODE aplikasi. Konten
- * (cerpen/berita/komik) tetap di-sync dari repo GitHub oleh DataManager
+ * (cerpen/berita/komik) tetap di-sync dari D1/CMS oleh DataManager
  * dan bisa update tanpa update APK.
  *
  * Fail-open: semua kegagalan jaringan/parse mengembalikan null — pemanggil
@@ -21,10 +23,9 @@ object UpdateCheck {
 
     const val REPO_OWNER = "hozin-king"
     const val REPO_NAME = "cerpen-hozin"
+    /** v1.1.29: versi terbaru dari CMS Worker (fail-open bila 404). */
     const val LATEST_RELEASE_URL =
-        "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
-    const val RELEASES_URL =
-        "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases?per_page=10"
+        "https://hozinking.my.id/api/cerpen-version"
     const val RELEASES_PAGE_URL =
         "https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest"
 
@@ -107,57 +108,22 @@ object UpdateCheck {
     }
 
     /**
-     * Pilih URL unduh APK dari `assets[]` satu rilis: utamakan .apk yang
-     * namanya mengandung "CerpenHozin" (nama aset rilis CI), fallback
-     * .apk pertama/terbesar. Null bila tidak ada aset .apk.
+     * Parse JSON endpoint CMS /api/cerpen-version:
+     * {"tag":"v1.1.28","version":"1.1.28","apk_url":"...","published_at":"..."}.
+     * Null bila tag/version invalid (fail-open). apk_url boleh kosong.
      */
-    fun pickApkAsset(assets: JSONArray?): String? {
-        if (assets == null) return null
-        var fallbackUrl: String? = null
-        var fallbackSize = -1L
-        for (i in 0 until assets.length()) {
-            val a = assets.optJSONObject(i) ?: continue
-            val name = a.optString("name", "")
-            if (!name.endsWith(".apk", ignoreCase = true)) continue
-            val url = a.optString("browser_download_url", "")
-            if (url.isEmpty()) continue
-            val size = a.optLong("size", 0)
-            if (name.contains("CerpenHozin", ignoreCase = true)) {
-                return url
-            }
-            if (size > fallbackSize) {
-                fallbackSize = size
-                fallbackUrl = url
-            }
-        }
-        return fallbackUrl
-    }
-
-    /** Parse JSON satu rilis (endpoint /releases/latest). Null bila tag invalid. */
     fun parseLatestRelease(jsonText: String): ReleaseInfo? {
         return try {
             val obj = JSONObject(jsonText)
-            val tag = obj.optString("tag_name", "")
-            if (parseVersion(tag) == null) return null
-            val version = tag.trim().removePrefix("v").removePrefix("V")
-            ReleaseInfo(tag, version, pickApkAsset(obj.optJSONArray("assets")))
+            val tag = obj.optString("tag", "")
+            val version = obj.optString("version", "").ifEmpty {
+                tag.trim().removePrefix("v").removePrefix("V")
+            }
+            if (parseVersion(tag) == null || parseVersion(version) == null) return null
+            val apkUrl = obj.optString("apk_url", "").ifEmpty { null }
+            ReleaseInfo(tag, version, apkUrl)
         } catch (e: Exception) {
             null
-        }
-    }
-
-    /** Parse JSON daftar rilis (endpoint /releases) jadi daftar tag. */
-    fun parseReleaseTags(jsonText: String): List<String> {
-        return try {
-            val arr = JSONArray(jsonText)
-            val tags = ArrayList<String>(arr.length())
-            for (i in 0 until arr.length()) {
-                val tag = arr.optJSONObject(i)?.optString("tag_name", "") ?: ""
-                if (tag.isNotEmpty()) tags.add(tag)
-            }
-            tags
-        } catch (e: Exception) {
-            emptyList()
         }
     }
 
@@ -202,20 +168,26 @@ object UpdateCheck {
 
     // ============ Jaringan (java.net saja, pola sama dengan DataManager) ============
 
-    /** GET satu URL, kembalikan body teks bila HTTP 200, null bila gagal. */
+    /**
+     * GET satu URL, kembalikan body teks bila HTTP 200, null bila server
+     * menjawab HTTP error (mis. 404). LEMPAR IOException bila koneksi
+     * gagal — syarat Hosts.withFallback (coba host fallback sekali).
+     */
     fun fetchText(url: String): String? {
         var conn: HttpURLConnection? = null
-        return try {
+        try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 15000
                 setRequestProperty("User-Agent", "CerpenHozin/1.1")
-                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("Accept", "application/json")
             }
             if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
-            conn.inputStream.bufferedReader(Charsets.UTF_8).readText()
+            return conn.inputStream.bufferedReader(Charsets.UTF_8).readText()
+        } catch (e: IOException) {
+            throw e
         } catch (e: Exception) {
-            null
+            throw IOException(e)
         } finally {
             conn?.disconnect()
         }

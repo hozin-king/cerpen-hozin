@@ -143,9 +143,10 @@ class NewsAdapter(
         h.meta.setTextColor(palette.muted)
         h.badgeNew.visibility = if (ItemDates.isNew(a.addedAt, a.date)) View.VISIBLE else View.GONE
         val firstImage = a.images.firstOrNull() ?: a.image
-        // v1.1.5: thumbnail dimuat asinkron; hanya dari .enc lokal
-        // (tidak auto-fetch dari internet saat scroll — gambar
-        // diunduh per item lewat tombol Unduh / buka detail).
+        // v1.1.29: thumbnail dimuat asinkron (progressive — thumb CMS
+        // dulu, full menyusul di latar via CoverCache.loadInto); gambar
+        // yang belum ada juga diunduh per item lewat tombol Unduh /
+        // buka detail.
         if (!firstImage.isNullOrEmpty()) {
             CoverCache.loadInto(h.itemView.context, "news/$firstImage", 300, h.thumb, R.drawable.news_placeholder)
         } else {

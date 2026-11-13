@@ -13,6 +13,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.zip.GZIPOutputStream
@@ -464,6 +465,31 @@ object DataManager {
     }
 
     /**
+     * GET sekali; lempar IOException bila koneksi gagal (syarat
+     * Hosts.withFallback), null bila server menjawab HTTP error
+     * (404/429/dll). Tanpa ulangi — withFallback sudah memberi
+     * percobaan kedua di host fallback.
+     */
+    private fun fetchBytesOrThrow(url: String): ByteArray? {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 20000
+                setRequestProperty("User-Agent", "CerpenHozin/1.1")
+            }
+            if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
+            return conn.inputStream.readBytes()
+        } catch (e: IOException) {
+            throw e
+        } catch (e: Exception) {
+            throw IOException(e)
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /**
      * GET satu URL, kembalikan body bila HTTP 200, null bila gagal.
      * v1.1.6: 1x ulangi bila gagal (jeda 500 ms) — sinyal HP sering
      * putus sesaat, dan manifest adalah gerbang seluruh sync.
@@ -799,6 +825,8 @@ object DataManager {
      * Unduh satu gambar .enc dari URL langsung (bukan dari manifest):
      * dipakai sync D1 — URL-nya dari cover_url / image_url D1.
      * Verifikasi GCM saja (tanpa SHA manifest); true bila baru tersimpan.
+     * v1.1.29: lewat Hosts.withFallback (workers.dev bila host utama
+     * gagal koneksi); 404 tetap gagal, bukan fallback.
      */
     private fun syncOneImageFromUrl(
         context: Context,
@@ -808,7 +836,11 @@ object DataManager {
     ): Boolean {
         val dest = File(dataDir(context), "$assetPath.enc")
         if (dest.exists() && dest.length() > 0) return false
-        val enc = fetchBytes(url) ?: return false
+        val enc = try {
+            Hosts.withFallback(url) { fetchBytesOrThrow(it) }
+        } catch (e: IOException) {
+            return false
+        } ?: return false
         if (ContentCrypto.decrypt(enc, key) == null) {
             Log.w(TAG, "sync $assetPath: verifikasi GCM gagal, file ditolak")
             return false
@@ -821,6 +853,58 @@ object DataManager {
             e.printStackTrace()
             false
         }
+    }
+
+    /**
+     * URL gambar di CMS Worker untuk satu assetPath lokal
+     * ("covers/cover_01.jpg" -> .../api/cerpen-img/covers/cover_01.jpg.enc).
+     * Thumbnail (v1.1.29): ".thumb" disisipkan sebelum ".enc" akhir
+     * (".../cover_01.jpg.thumb.enc") — konvensi yang sama dengan
+     * migrasi + sync. Thumbnail adalah JPEG terkompresi (~320px, q70)
+     * yang dienkripsi dengan kunci yang sama seperti full.
+     */
+    fun cmsImageUrl(assetPath: String, thumb: Boolean = false): String {
+        val suffix = if (thumb) ".thumb.enc" else ".enc"
+        return "${Hosts.PRIMARY}/api/cerpen-img/$assetPath$suffix"
+    }
+
+    /**
+     * Unduh + dekripsi satu gambar dari CMS Worker (v1.1.29, progressive
+     * load): host utama dulu, fallback workers.dev bila koneksi gagal.
+     * Null bila 404 (gambar lama tanpa thumb) / gagal dekripsi / offline.
+     * Thumb diverifikasi GCM saja (SHA manifest milik full, bukan thumb).
+     * Full yang berhasil didekripsi juga DISIMPAN sebagai .enc lokal
+     * (terverifikasi GCM dulu) supaya tampil berikutnya langsung dari
+     * lokal dan sync melewatinya — tidak pernah ada plaintext di disk.
+     * Panggil HANYA dari thread latar (jaringan + dekripsi).
+     */
+    fun fetchCmsImageBytes(context: Context, assetPath: String, thumb: Boolean): ByteArray? {
+        val key = ContentGuard.getKey() ?: return null
+        val enc = try {
+            Hosts.withFallback(cmsImageUrl(assetPath, thumb)) { fetchBytesOrThrow(it) }
+        } catch (e: IOException) {
+            return null
+        } ?: return null
+        val plain = if (!thumb) {
+            val entry = manifestEntry(context, assetPath)
+            if (entry != null) ContentCrypto.decryptVerifiedBytes(enc, key, entry.first)
+            else ContentCrypto.decrypt(enc, key)
+        } else {
+            ContentCrypto.decrypt(enc, key)
+        } ?: return null
+        if (!thumb) {
+            try {
+                val dest = File(dataDir(context), "$assetPath.enc")
+                if (!dest.exists() || dest.length() == 0L) {
+                    dest.parentFile?.mkdirs()
+                    dest.writeBytes(enc)
+                }
+            } catch (e: Exception) {
+                // Tampil tetap jalan dari byte di memori; sync akan
+                // mengunduh ulang gambar ini nanti.
+            }
+        }
+        return plain
     }
 
     /** Satu thread background untuk sync; [onDone] di main thread. */
