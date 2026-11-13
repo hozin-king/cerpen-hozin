@@ -154,10 +154,10 @@ class KomikReaderActivity : AppCompatActivity() {
                 contentDescription = "Panel ${index + 1}"
             }
             panelViews.add(imageView)
-            val d = drawables.getOrNull(index)
-            if (d != null) {
-                imageView.setImageDrawable(d)
-                (d as? AnimatedImageDrawable)?.start()
+            val panelDrawable = drawables.getOrNull(index)
+            if (panelDrawable != null) {
+                imageView.setImageDrawable(panelDrawable)
+                (panelDrawable as? AnimatedImageDrawable)?.start()
             } else {
                 imageView.setImageResource(R.drawable.cover_placeholder)
                 // Panel belum terunduh — tombol "Unduh episode ini" sudah
