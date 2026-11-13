@@ -383,36 +383,47 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- v1.1.4: progres sync/unduh (bilah + teks tahap) — dipakai pull-to-refresh. -->
-        <ProgressBar
-            android:id="@+id/sync_progress_bar"
-            style="?android:attr/progressBarStyleHorizontal"
+        <!-- v1.1.27: strip bawah (bilah + teks progres + footer) dalam satu
+             container supaya jaraknya konsisten dan tidak berdesakan. -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:max="100"
-            android:visibility="gone" />
+            android:orientation="vertical"
+            android:paddingTop="12dp"
+            android:paddingBottom="8dp">
 
-        <TextView
-            android:id="@+id/sync_progress_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Mengunduh…"
-            android:textColor="@color/muted"
-            android:textSize="13sp"
-            android:visibility="gone" />
+            <!-- v1.1.4: progres sync/unduh (bilah + teks tahap) — dipakai pull-to-refresh. -->
+            <ProgressBar
+                android:id="@+id/sync_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="6dp"
+                android:max="100"
+                android:visibility="gone" />
 
-        <!-- v1.2: angka versi DIHAPUS dari layout — diisi runtime dari
-             BuildConfig.VERSION_NAME (MainActivity) agar selalu benar. -->
-        <TextView
-            android:id="@+id/app_footer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:text="Cerpen Hozin · semua konten tersimpan di perangkat"
-            android:textColor="@color/muted"
-            android:textSize="12sp" />
+            <TextView
+                android:id="@+id/sync_progress_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
+                android:text="Mengunduh…"
+                android:textColor="@color/muted"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <!-- v1.2: angka versi DIHAPUS dari layout — diisi runtime dari
+                 BuildConfig.VERSION_NAME (MainActivity) agar selalu benar. -->
+            <TextView
+                android:id="@+id/app_footer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
+                android:text="Cerpen Hozin · semua konten tersimpan di perangkat"
+                android:textColor="@color/muted"
+                android:textSize="12sp" />
+        </LinearLayout>
 
     </LinearLayout>
     </ScrollView>
