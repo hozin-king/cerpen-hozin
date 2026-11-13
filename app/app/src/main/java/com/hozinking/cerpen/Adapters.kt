@@ -74,8 +74,11 @@ class CerpenAdapter(
             h.badgeNew.visibility = View.GONE
         } else {
             h.badgeUpdated.visibility = View.GONE
-            // Badge NEW: cerpen terbaru (data cerpen belum punya tanggal).
-            h.badgeNew.visibility = if (c.id == newestId) View.VISIBLE else View.GONE
+            // v1.1.26: BARU bila series ini punya episode/season yang
+            // first-seen dalam 7 hari terakhir — atau series terbaru.
+            val hasNew = NewContentStore.hasNewContent(h.itemView.context, c)
+            h.badgeNew.visibility = if (c.id == newestId || hasNew) View.VISIBLE else View.GONE
+            if (hasNew) h.badgeNew.text = "BARU"
         }
         // Status unduh: sudah offline = ikon, belum = tombol Unduh.
         val ctx = h.itemView.context
@@ -233,6 +236,8 @@ class EpisodeAdapter(
         val no: TextView = v.findViewById(R.id.ep_no)
         val judul: TextView = v.findViewById(R.id.ep_judul)
         val status: TextView = v.findViewById(R.id.ep_status)
+        /** v1.1.26: chip BARU di samping judul episode baru. */
+        val badge: TextView = v.findViewById(R.id.ep_badge)
     }
 
     override fun getItemViewType(position: Int): Int =
@@ -250,7 +255,10 @@ class EpisodeAdapter(
     override fun onBindViewHolder(h: RecyclerView.ViewHolder, position: Int) {
         val row = rows[position]
         if (h is HeaderVH && row is Season) {
-            h.label.text = "Season ${row.season} · ${row.episodes.size} episode"
+            // v1.1.26: season baru (first-seen <= 7 hari) dapat label.
+            val seasonNew = NewContentStore.isSeasonNew(h.itemView.context, cerpen.id, row.season)
+            h.label.text = "Season ${row.season} · ${row.episodes.size} episode" +
+                if (seasonNew) " · SEASON BARU" else ""
             h.label.setTextColor(palette.accent)
         } else if (h is EpVH && row is Episode) {
             // Cari season pemilik episode ini.
@@ -264,6 +272,9 @@ class EpisodeAdapter(
             h.judul.text = if (marked) "🔖 ${row.judul}" else row.judul
             h.judul.setTextColor(palette.ink)
             h.judul.textSize = 16f * textScale
+            // v1.1.26: chip BARU bila episode ini first-seen <= 7 hari.
+            h.badge.visibility =
+                if (NewContentStore.isEpisodeNew(h.itemView.context, cerpen.id, seasonNo, row.no)) View.VISIBLE else View.GONE
             val done = ProgressStore.isDone(h.itemView.context, cerpen.id, seasonNo, row.no)
             h.status.text = if (done) "Sudah dibaca ✓" else "Belum dibaca"
             h.status.setTextColor(palette.muted)
@@ -339,7 +350,10 @@ class KomikAdapter(
             h.badgeNew.visibility = View.GONE
         } else {
             h.badgeUpdated.visibility = View.GONE
-            h.badgeNew.visibility = if (k.id == newestId) View.VISIBLE else View.GONE
+            // v1.1.26: BARU bila komik ini punya episode first-seen <= 7 hari.
+            val hasNew = NewContentStore.hasNewContent(ctx, k)
+            h.badgeNew.visibility = if (k.id == newestId || hasNew) View.VISIBLE else View.GONE
+            if (hasNew) h.badgeNew.text = "BARU"
         }
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
@@ -441,7 +455,10 @@ class CerbungAdapter(
             h.badgeNew.visibility = View.GONE
         } else {
             h.badgeUpdated.visibility = View.GONE
-            h.badgeNew.visibility = if (c.id == newestCerpenId) View.VISIBLE else View.GONE
+            // v1.1.26: BARU bila ada episode/season first-seen <= 7 hari.
+            val hasNew = NewContentStore.hasNewContent(h.itemView.context, c)
+            h.badgeNew.visibility = if (c.id == newestCerpenId || hasNew) View.VISIBLE else View.GONE
+            if (hasNew) h.badgeNew.text = "BARU"
         }
         val ctx = h.itemView.context
         val offline = DataManager.isCerpenOffline(ctx, c)
@@ -491,7 +508,10 @@ class CerbungAdapter(
             h.badgeNew.visibility = View.GONE
         } else {
             h.badgeUpdated.visibility = View.GONE
-            h.badgeNew.visibility = if (k.id == newestKomikId) View.VISIBLE else View.GONE
+            // v1.1.26: BARU bila ada episode first-seen <= 7 hari.
+            val hasNew = NewContentStore.hasNewContent(ctx, k)
+            h.badgeNew.visibility = if (k.id == newestKomikId || hasNew) View.VISIBLE else View.GONE
+            if (hasNew) h.badgeNew.text = "BARU"
         }
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
@@ -526,6 +546,8 @@ class KomikEpisodeAdapter(
         val no: TextView = v.findViewById(R.id.ep_no)
         val judul: TextView = v.findViewById(R.id.ep_judul)
         val status: TextView = v.findViewById(R.id.ep_status)
+        /** v1.1.26: chip BARU di samping judul episode baru. */
+        val badge: TextView = v.findViewById(R.id.ep_badge)
         override val downloadButton: Button = v.findViewById(R.id.download_button)
         override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
     }
@@ -543,6 +565,9 @@ class KomikEpisodeAdapter(
         h.judul.text = e.judul
         h.judul.setTextColor(palette.ink)
         h.judul.textSize = 16f * textScale
+        // v1.1.26: chip BARU bila episode ini first-seen <= 7 hari.
+        h.badge.visibility =
+            if (NewContentStore.isKomikEpisodeNew(h.itemView.context, komik.id, e.no)) View.VISIBLE else View.GONE
         val ctx = h.itemView.context
         val (done, total) = DataManager.komikEpisodePanelOfflineCount(ctx, e)
         val offline = DataManager.isKomikEpisodeOffline(ctx, e)

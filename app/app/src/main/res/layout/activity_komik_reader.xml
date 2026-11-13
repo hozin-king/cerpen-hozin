@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Pembaca komik: judul + meta tetap di atas, panel (gambar + teks
-     dialog) berurutan vertikal di dalam ScrollView. -->
+<!-- Pembaca komik gaya Webtoon (v1.1.26): RecyclerView vertikal continuous
+     scroll, panel full-width; header + progress bar tipis bisa disembunyikan
+     dengan tap (chrome). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/komik_reader_root"
     android:layout_width="match_parent"
@@ -9,6 +10,7 @@
     android:orientation="vertical">
 
     <LinearLayout
+        android:id="@+id/komik_reader_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -44,18 +46,57 @@
         android:layout_marginTop="24dp"
         android:visibility="gone" />
 
-    <ScrollView
-        android:id="@+id/komik_reader_scroll"
+    <Button
+        android:id="@+id/komik_reader_download"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="12dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:text="⬇ Unduh episode ini"
+        android:textColor="@color/white"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/komik_reader_list"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
+        android:clipToPadding="false" />
 
-        <LinearLayout
-            android:id="@+id/komik_reader_container"
-            android:layout_width="match_parent"
+    <LinearLayout
+        android:id="@+id/komik_reader_progress_box"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="10dp">
+
+        <ProgressBar
+            android:id="@+id/komik_reader_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="0dp"
+            android:layout_height="4dp"
+            android:layout_weight="1"
+            android:max="100"
+            android:progress="0" />
+
+        <TextView
+            android:id="@+id/komik_reader_counter"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp" />
-    </ScrollView>
+            android:layout_marginStart="12dp"
+            android:text="Panel 1/1"
+            android:textColor="@color/muted"
+            android:textSize="12sp" />
+    </LinearLayout>
 </LinearLayout>

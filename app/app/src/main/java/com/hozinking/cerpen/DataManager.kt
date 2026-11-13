@@ -1213,6 +1213,9 @@ object DataManager {
                     }
                     if (kind != null) {
                         UpdatedStore.markCerpen(context, c.id, kind)
+                        // v1.1.26: stempel first-seen per season/episode baru
+                        // (label BARU / SEASON BARU, jendela 7 hari).
+                        NewContentStore.markNewCerpen(context, c, old)
                         any = true
                     }
                 }
@@ -1234,6 +1237,8 @@ object DataManager {
                     }
                     if (kind != null) {
                         UpdatedStore.markKomik(context, k.id, kind)
+                        // v1.1.26: stempel first-seen per episode baru.
+                        NewContentStore.markNewKomik(context, k, old)
                         any = true
                     }
                 }

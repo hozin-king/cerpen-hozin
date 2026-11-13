@@ -1,23 +1,29 @@
 package com.hozinking.cerpen
 
-import android.graphics.drawable.AnimatedImageDrawable
-import android.graphics.drawable.Drawable
+import android.content.res.ColorStateList
 import android.os.Bundle
+import android.view.GestureDetector
+import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 
 /**
- * Pembaca komik: panel tampil vertikal berurutan — gambar lalu teks
- * dialog di bawahnya. Gambar didekripsi in-memory di thread latar
- * (DataManager.decryptImageBytes via CoverCache), tampilan dibangun
- * di UI thread setelah semua panel siap (5 panel per episode).
+ * Pembaca komik gaya Webtoon (v1.1.26): RecyclerView vertikal continuous
+ * scroll, panel full-width tanpa distorsi aspek, indikator "Panel X/Y" +
+ * progress bar tipis, tap layar sembunyikan/tampilkan chrome (judul +
+ * progress). Panel dimuat malas per item via CoverCache.loadInto — panel
+ * GIF tetap beranimasi (AnimatedImageDrawable, seperti v1.1.25); tetangga
+ * di-prefetch supaya scroll mulus. Tanpa WebView.
  */
 class KomikReaderActivity : AppCompatActivity() {
 
@@ -28,11 +34,16 @@ class KomikReaderActivity : AppCompatActivity() {
     }
 
     private lateinit var root: View
-    private lateinit var scrollView: ScrollView
-    private lateinit var container: LinearLayout
+    private lateinit var headerBox: LinearLayout
     private lateinit var titleText: TextView
     private lateinit var metaText: TextView
     private lateinit var loading: ProgressBar
+    private lateinit var recycler: RecyclerView
+    private lateinit var layoutManager: LinearLayoutManager
+    private lateinit var progressBox: LinearLayout
+    private lateinit var progressBar: ProgressBar
+    private lateinit var counterText: TextView
+    private lateinit var downloadButton: Button
 
     private var komikId: String = ""
     private var episodeNo: Int = 1
@@ -40,8 +51,7 @@ class KomikReaderActivity : AppCompatActivity() {
     private var currentKomik: Komik? = null
     private var currentEpisode: KomikEpisode? = null
     private var downloading = false
-    private var downloadButton: Button? = null
-    private val panelViews = ArrayList<View>()
+    private var chromeVisible = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,42 +59,47 @@ class KomikReaderActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         root = findViewById(R.id.komik_reader_root)
-        scrollView = findViewById(R.id.komik_reader_scroll)
-        container = findViewById(R.id.komik_reader_container)
+        headerBox = findViewById(R.id.komik_reader_header)
         titleText = findViewById(R.id.komik_reader_title)
         metaText = findViewById(R.id.komik_reader_meta)
         loading = findViewById(R.id.loading)
+        recycler = findViewById(R.id.komik_reader_list)
+        progressBox = findViewById(R.id.komik_reader_progress_box)
+        progressBar = findViewById(R.id.komik_reader_progress)
+        counterText = findViewById(R.id.komik_reader_counter)
+        downloadButton = findViewById(R.id.komik_reader_download)
 
-        val komikIdExtra = intent.getStringExtra(EXTRA_KOMIK_ID) ?: run { finish(); return }
-        val episodeNoExtra = intent.getIntExtra(EXTRA_EPISODE, 1)
-        komikId = komikIdExtra
-        episodeNo = episodeNoExtra
+        komikId = intent.getStringExtra(EXTRA_KOMIK_ID) ?: run { finish(); return }
+        episodeNo = intent.getIntExtra(EXTRA_EPISODE, 1)
         startPanel = intent.getIntExtra(EXTRA_PANEL, 0)
+
+        layoutManager = LinearLayoutManager(this)
+        layoutManager.initialPrefetchItemCount = 2
+        recycler.layoutManager = layoutManager
+        recycler.setItemViewCacheSize(2)
+        recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) = updateProgress()
+        })
+        recycler.addOnItemTouchListener(TapToToggleChrome())
+        downloadButton.setOnClickListener { downloadEpisode() }
 
         applyTheme()
         loadEpisode()
     }
 
-    /** Muat episode (dekripsi panel di thread latar) lalu bind.
-     *  v1.1.25: panel dimuat sebagai Drawable supaya panel GIF ikut
-     *  beranimasi (AnimatedImageDrawable); panel statis tetap Bitmap. */
+    /** Muat metadata episode di thread latar, lalu pasang adapter. */
     private fun loadEpisode() {
         loading.visibility = View.VISIBLE
         Thread {
             val komik = DataManager.loadKomik(this).firstOrNull { it.id == komikId }
             val episode = komik?.episode(episodeNo)
-            val drawables: List<Drawable?> = episode?.panels?.map { panel ->
-                if (panel.image.isNotEmpty()) {
-                    CoverCache.getDrawable(this, "komik/panels/${panel.image}", 600)
-                } else null
-            } ?: emptyList()
             runOnUiThread {
                 loading.visibility = View.GONE
                 if (komik == null || episode == null) {
                     finish()
                     return@runOnUiThread
                 }
-                bind(komik, episode, drawables)
+                bind(komik, episode)
             }
         }.start()
     }
@@ -103,16 +118,12 @@ class KomikReaderActivity : AppCompatActivity() {
      *  keluar reader (dipakai tombol Lanjutkan di halaman detail). */
     private fun saveProgress() {
         currentEpisode ?: return
-        if (panelViews.isEmpty()) return
-        val y = scrollView.scrollY
-        var idx = 0
-        for (i in panelViews.indices) {
-            if (panelViews[i].top <= y) idx = i
-        }
-        ProgressStore.saveLastKomik(this, komikId, episodeNo, idx)
+        val pos = layoutManager.findFirstVisibleItemPosition()
+        if (pos == RecyclerView.NO_POSITION) return
+        ProgressStore.saveLastKomik(this, komikId, episodeNo, pos)
     }
 
-    private fun bind(komik: Komik, episode: KomikEpisode, drawables: List<Drawable?>) {
+    private fun bind(komik: Komik, episode: KomikEpisode) {
         currentKomik = komik
         currentEpisode = episode
         supportActionBar?.title = komik.judul
@@ -120,102 +131,119 @@ class KomikReaderActivity : AppCompatActivity() {
         metaText.text = "${komik.judul} · Episode ${episode.no} · ${episode.panels.size} panel"
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
-        val d = resources.displayMetrics.density
-        container.removeAllViews()
-        panelViews.clear()
-        downloadButton = null
         // v1.1.5: bila ada panel yang belum terunduh, tampilkan tombol
-        // "Unduh episode ini" di atas panel (bukan pesan jalan buntu).
-        val missing = drawables.count { it == null }
+        // "Unduh episode ini" di atas daftar (bukan pesan jalan buntu).
+        val (done, total) = DataManager.komikEpisodePanelOfflineCount(this, episode)
+        val missing = total - done
         if (missing > 0) {
-            val (done, total) = DataManager.komikEpisodePanelOfflineCount(this, episode)
-            val btn = Button(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    bottomMargin = (12 * d).toInt()
-                }
-                text = "⬇ Unduh episode ini ($done/$total panel)"
-                setTextColor(palette.onAccent)
-                setOnClickListener { downloadEpisode() }
-            }
-            downloadButton = btn
-            container.addView(btn)
+            downloadButton.visibility = View.VISIBLE
+            downloadButton.text = "⬇ Unduh episode ini ($done/$total panel)"
+            downloadButton.isEnabled = !downloading
+        } else {
+            downloadButton.visibility = View.GONE
         }
-        for ((index, panel) in episode.panels.withIndex()) {
-            val imageView = ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                adjustViewBounds = true
-                scaleType = ImageView.ScaleType.FIT_CENTER
-                contentDescription = "Panel ${index + 1}"
-            }
-            panelViews.add(imageView)
-            val panelDrawable = drawables.getOrNull(index)
-            if (panelDrawable != null) {
-                imageView.setImageDrawable(panelDrawable)
-                (panelDrawable as? AnimatedImageDrawable)?.start()
-            } else {
-                imageView.setImageResource(R.drawable.cover_placeholder)
-                // Panel belum terunduh — tombol "Unduh episode ini" sudah
-                // ada di atas; di sini cukup penanda singkat.
-                val hintView = TextView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        topMargin = (8 * d).toInt()
-                    }
-                    text = "Panel belum terunduh — ketuk tombol unduh di atas."
-                    setTextColor(palette.muted)
-                    textSize = 13f * scale
-                }
-                container.addView(imageView)
-                container.addView(hintView)
-                // Lanjut ke teks dialog di bawah (teks selalu ada di JSON).
-                val teksView = TextView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        topMargin = (8 * d).toInt()
-                        bottomMargin = (20 * d).toInt()
-                    }
-                    text = panel.teks
-                    setTextColor(palette.inkSoft)
-                    textSize = 15f * scale
-                    setLineSpacing(0f, 1.4f)
-                }
-                container.addView(teksView)
-                continue
-            }
-            container.addView(imageView)
-            val teksView = TextView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                ).apply {
-                    topMargin = (8 * d).toInt()
-                    bottomMargin = (20 * d).toInt()
-                }
-                text = panel.teks
-                setTextColor(palette.inkSoft)
-                textSize = 15f * scale
-                setLineSpacing(0f, 1.4f)
-            }
-            container.addView(teksView)
-        }
+        recycler.adapter = PanelAdapter(episode, palette, scale)
         // v1.1.13: buka di panel terakhir bila diminta (tombol Lanjutkan);
         // bila tidak, mulai dari atas seperti biasa.
         val target = startPanel.coerceIn(0, (episode.panels.size - 1).coerceAtLeast(0))
-        if (target > 0) {
-            scrollView.post { scrollView.scrollTo(0, panelViews.getOrNull(target)?.top ?: 0) }
-        } else {
-            scrollView.scrollTo(0, 0)
+        recycler.post {
+            if (target > 0) layoutManager.scrollToPosition(target)
+            updateProgress()
         }
+        updateProgress()
+    }
+
+    /** Panel pertama yang terlihat -> "Panel X/Y" + progress bar. */
+    private fun updateProgress() {
+        val episode = currentEpisode ?: return
+        val total = episode.panels.size
+        if (total == 0) return
+        val pos = layoutManager.findFirstVisibleItemPosition().coerceIn(0, total - 1)
+        counterText.text = "Panel ${pos + 1}/$total"
+        progressBar.max = total
+        progressBar.progress = pos + 1
+    }
+
+    /** Tap di mana saja pada panel = sembunyikan/tampilkan chrome. */
+    private fun toggleChrome() {
+        chromeVisible = !chromeVisible
+        headerBox.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        progressBox.visibility = if (chromeVisible) View.VISIBLE else View.GONE
+        if (chromeVisible) supportActionBar?.show() else supportActionBar?.hide()
+    }
+
+    /** Single-tap (bukan scroll) pada RecyclerView -> toggle chrome. */
+    private inner class TapToToggleChrome : RecyclerView.OnItemTouchListener {
+        private val detector = GestureDetector(
+            this@KomikReaderActivity,
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: MotionEvent): Boolean {
+                    toggleChrome()
+                    return true
+                }
+            }
+        )
+
+        override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+            detector.onTouchEvent(e)
+            return false
+        }
+
+        override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {}
+        override fun onRequestDisallowInterceptTouchEvent(disallow: Boolean) {}
+    }
+
+    /** ViewHolder satu panel — di level Activity (bukan di dalam
+     *  PanelAdapter: kelas bersarang di inner class tidak diizinkan
+     *  saat dipakai sebagai argumen supertype adapter). */
+    class PanelVH(v: View) : RecyclerView.ViewHolder(v) {
+        val image: ImageView = v.findViewById(R.id.panel_image)
+        val teks: TextView = v.findViewById(R.id.panel_teks)
+        val hint: TextView = v.findViewById(R.id.panel_hint)
+    }
+
+    /** Satu panel: gambar (malas, via CoverCache) + teks dialog di bawahnya. */
+    private inner class PanelAdapter(
+        private val episode: KomikEpisode,
+        private val palette: ThemePalette,
+        private val scale: Float
+    ) : RecyclerView.Adapter<PanelVH>() {
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PanelVH {
+            val v = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_komik_panel, parent, false)
+            return PanelVH(v)
+        }
+
+        override fun onBindViewHolder(h: PanelVH, pos: Int) {
+            val panel = episode.panels[pos]
+            h.teks.text = panel.teks
+            h.teks.setTextColor(palette.inkSoft)
+            h.teks.textSize = 15f * scale
+            h.hint.visibility = View.GONE
+            if (panel.image.isNotEmpty()) {
+                CoverCache.loadInto(
+                    h.itemView.context,
+                    "komik/panels/${panel.image}",
+                    600,
+                    h.image,
+                    R.drawable.cover_placeholder
+                )
+            } else {
+                // Panel belum terunduh — placeholder + penanda singkat;
+                // teks dialog tetap tampil (selalu ada di JSON).
+                CoverCache.clear(h.image, R.drawable.cover_placeholder)
+                h.hint.visibility = View.VISIBLE
+            }
+        }
+
+        override fun onViewRecycled(h: PanelVH) {
+            // Hentikan animasi GIF yang sedang berjalan di view ini.
+            CoverCache.clear(h.image, R.drawable.cover_placeholder)
+            super.onViewRecycled(h)
+        }
+
+        override fun getItemCount(): Int = episode.panels.size
     }
 
     /** v1.1.5: unduh episode ini, lalu muat ulang panel. */
@@ -224,11 +252,10 @@ class KomikReaderActivity : AppCompatActivity() {
         val episode = currentEpisode ?: return
         if (downloading) return
         downloading = true
-        val btn = downloadButton
-        btn?.isEnabled = false
-        btn?.text = "Mengunduh…"
+        downloadButton.isEnabled = false
+        downloadButton.text = "Mengunduh…"
         DataManager.downloadKomikEpisode(this, komik, episode, onProgress = { done, total, _ ->
-            btn?.text = "Mengunduh $done/$total…"
+            downloadButton.text = "Mengunduh $done/$total…"
         }) { result ->
             downloading = false
             Toast.makeText(
@@ -246,6 +273,8 @@ class KomikReaderActivity : AppCompatActivity() {
         root.setBackgroundColor(palette.bg)
         titleText.setTextColor(palette.titleInk)
         metaText.setTextColor(palette.muted)
+        counterText.setTextColor(palette.muted)
+        progressBar.progressTintList = ColorStateList.valueOf(palette.accent)
     }
 
     override fun onSupportNavigateUp(): Boolean {
