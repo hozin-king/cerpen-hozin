@@ -1,6 +1,7 @@
 package com.hozinking.cerpen
 
-import android.graphics.Bitmap
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
@@ -64,15 +65,17 @@ class KomikReaderActivity : AppCompatActivity() {
         loadEpisode()
     }
 
-    /** Muat episode (dekripsi panel di thread latar) lalu bind. */
+    /** Muat episode (dekripsi panel di thread latar) lalu bind.
+     *  v1.1.25: panel dimuat sebagai Drawable supaya panel GIF ikut
+     *  beranimasi (AnimatedImageDrawable); panel statis tetap Bitmap. */
     private fun loadEpisode() {
         loading.visibility = View.VISIBLE
         Thread {
             val komik = DataManager.loadKomik(this).firstOrNull { it.id == komikId }
             val episode = komik?.episode(episodeNo)
-            val bitmaps: List<Bitmap?> = episode?.panels?.map { panel ->
+            val drawables: List<Drawable?> = episode?.panels?.map { panel ->
                 if (panel.image.isNotEmpty()) {
-                    CoverCache.get(this, "komik/panels/${panel.image}", 600)
+                    CoverCache.getDrawable(this, "komik/panels/${panel.image}", 600)
                 } else null
             } ?: emptyList()
             runOnUiThread {
@@ -81,7 +84,7 @@ class KomikReaderActivity : AppCompatActivity() {
                     finish()
                     return@runOnUiThread
                 }
-                bind(komik, episode, bitmaps)
+                bind(komik, episode, drawables)
             }
         }.start()
     }
@@ -109,7 +112,7 @@ class KomikReaderActivity : AppCompatActivity() {
         ProgressStore.saveLastKomik(this, komikId, episodeNo, idx)
     }
 
-    private fun bind(komik: Komik, episode: KomikEpisode, bitmaps: List<Bitmap?>) {
+    private fun bind(komik: Komik, episode: KomikEpisode, drawables: List<Drawable?>) {
         currentKomik = komik
         currentEpisode = episode
         supportActionBar?.title = komik.judul
@@ -123,7 +126,7 @@ class KomikReaderActivity : AppCompatActivity() {
         downloadButton = null
         // v1.1.5: bila ada panel yang belum terunduh, tampilkan tombol
         // "Unduh episode ini" di atas panel (bukan pesan jalan buntu).
-        val missing = bitmaps.count { it == null }
+        val missing = drawables.count { it == null }
         if (missing > 0) {
             val (done, total) = DataManager.komikEpisodePanelOfflineCount(this, episode)
             val btn = Button(this).apply {
@@ -151,9 +154,10 @@ class KomikReaderActivity : AppCompatActivity() {
                 contentDescription = "Panel ${index + 1}"
             }
             panelViews.add(imageView)
-            val bmp = bitmaps.getOrNull(index)
-            if (bmp != null) {
-                imageView.setImageBitmap(bmp)
+            val d = drawables.getOrNull(index)
+            if (d != null) {
+                imageView.setImageDrawable(d)
+                (d as? AnimatedImageDrawable)?.start()
             } else {
                 imageView.setImageResource(R.drawable.cover_placeholder)
                 // Panel belum terunduh — tombol "Unduh episode ini" sudah

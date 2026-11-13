@@ -3,8 +3,14 @@ package com.hozinking.cerpen
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
+import android.graphics.drawable.AnimatedImageDrawable
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.os.Build
 import android.util.LruCache
 import android.widget.ImageView
+import java.nio.ByteBuffer
 import java.util.concurrent.Executors
 import org.json.JSONArray
 import org.json.JSONObject
@@ -422,23 +428,83 @@ object CoverCache {
      * placeholder langsung tampil, dekripsi+dekode di thread latar.
      * Tag view = assetPath; bila holder sudah di-recycle untuk item
      * lain (tag berubah), hasil dibuang — tidak ada gambar nyasar.
+     * v1.1.25: GIF (cover/panel animasi) diputar via AnimatedImageDrawable
+     * (ImageDecoder, API 28+); di bawah API 28 tampil frame pertama.
      */
     fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int) {
+        stopAnimated(view)
         view.setImageResource(placeholderRes)
         view.tag = assetPath
         loader.execute {
-            val bmp = get(context, assetPath, reqWidth)
+            val d = getDrawable(context, assetPath, reqWidth)
             if (view.tag != assetPath) return@execute // sudah di-recycle
             view.post {
-                if (view.tag == assetPath && bmp != null) view.setImageBitmap(bmp)
+                if (view.tag == assetPath && d != null) {
+                    view.setImageDrawable(d)
+                    (d as? AnimatedImageDrawable)?.start()
+                }
             }
         }
+    }
+
+    /** Hentikan animasi GIF yang sedang berjalan di view ini (bila ada). */
+    private fun stopAnimated(view: ImageView) {
+        (view.drawable as? AnimatedImageDrawable)?.stop()
     }
 
     /** Batalkan muatan tertunda untuk view yang di-recycle. */
     fun clear(view: ImageView, placeholderRes: Int) {
         view.tag = null
+        stopAnimated(view)
         view.setImageResource(placeholderRes)
+    }
+
+    /**
+     * GIF dikenali dari magic "GIF8" (GIF87a/GIF89a). Fungsi murni —
+     * tidak menyentuh disk/jaringan.
+     */
+    fun isGif(bytes: ByteArray): Boolean {
+        return bytes.size >= 4 &&
+            bytes[0] == 'G'.code.toByte() && bytes[1] == 'I'.code.toByte() &&
+            bytes[2] == 'F'.code.toByte() && bytes[3] == '8'.code.toByte()
+    }
+
+    /**
+     * Muat gambar sebagai Drawable: GIF -> AnimatedImageDrawable yang
+     * beranimasi (API 28+; di bawah itu jatuh ke Bitmap frame pertama),
+     * gambar lain -> BitmapDrawable dari cache Bitmap yang sudah ada.
+     * Keputusan GIF diambil dari ekstensi ".gif" (prosedur cover/panel
+     * animasi memakai nama .gif) supaya gambar statis tidak kena
+     * dekripsi ganda; isi byte tetap diperiksa magic "GIF8" sebelum
+     * di-decode sebagai animasi. Drawable GIF TIDAK di-cache (satu
+     * drawable tidak boleh dipakai dua view sekaligus) — dekode diulang
+     * tiap bind di thread latar.
+     * assetPath berbentuk "covers/cover_01.jpg" atau "news/img/xxx.jpg".
+     */
+    fun getDrawable(context: Context, assetPath: String, reqWidth: Int): Drawable? {
+        if (!assetPath.endsWith(".gif", ignoreCase = true)) {
+            val bmp = get(context, assetPath, reqWidth) ?: return null
+            return BitmapDrawable(context.resources, bmp)
+        }
+        val bytes = DataManager.decryptImageBytes(context, assetPath) ?: return null
+        if (isGif(bytes)) {
+            decodeGifDrawable(bytes)?.let { return it }
+        }
+        // Bukan GIF beneran / gagal decode -> frame pertama statis.
+        val bmp = get(context, assetPath, reqWidth) ?: return null
+        return BitmapDrawable(context.resources, bmp)
+    }
+
+    /** Dekode GIF menjadi AnimatedImageDrawable (API 28+ saja). */
+    private fun decodeGifDrawable(bytes: ByteArray): AnimatedImageDrawable? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return null
+        return try {
+            val src = ImageDecoder.createSource(ByteBuffer.wrap(bytes))
+            ImageDecoder.decodeDrawable(src) as? AnimatedImageDrawable
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     /**
