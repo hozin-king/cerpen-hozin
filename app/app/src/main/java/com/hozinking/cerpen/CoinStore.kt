@@ -28,6 +28,7 @@ object CoinStore {
     private const val K_UNLOCKS = "unlocks"
     private const val K_PRICING_JSON = "pricing_json"
     private const val K_VIP_EXPIRES_AT = "vip_expires_at"
+    private const val K_VERIFIED = "verified"
     private const val K_READING_PRIVATE = "reading_private"
     private const val K_KOMIK_READ = "komik_read"
 
@@ -83,6 +84,7 @@ object CoinStore {
             hasSession = hasSession(ctx),
             username = username(ctx),
             userId = userId(ctx),
+            verified = p.getBoolean(K_VERIFIED, false),
             readingPrivate = p.getBoolean(K_READING_PRIVATE, false),
             balanceUpdatedAtMs = p.getLong(K_BALANCE_AT, 0)
         )
@@ -96,6 +98,7 @@ object CoinStore {
         ed.putLong(K_BALANCE_AT, System.currentTimeMillis())
         ed.putStringSet(K_UNLOCKS, me.unlocks)
         ed.putLong(K_VIP_EXPIRES_AT, if (me.vipActive) me.vipExpiresAtMs else 0L)
+        ed.putBoolean(K_VERIFIED, me.verified)
         ed.putBoolean(K_READING_PRIVATE, me.readingPrivate)
         if (me.pricingJson != null) ed.putString(K_PRICING_JSON, me.pricingJson)
         if (me.username != null) ed.putString(K_USERNAME, me.username)
@@ -119,6 +122,7 @@ object CoinStore {
         ed.remove(K_USERNAME)
         ed.remove(K_OWNER_KEY)
         ed.remove(K_VIP_EXPIRES_AT)
+        ed.remove(K_VERIFIED)
         ed.putBoolean(K_READING_PRIVATE, false)
         ed.apply()
     }

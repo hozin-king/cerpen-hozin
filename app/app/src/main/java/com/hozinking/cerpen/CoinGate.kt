@@ -9,10 +9,10 @@ import java.util.Locale
  * Logika koin murni (v1.1.30) — tanpa dependensi Android supaya bisa
  * di-unit-test di JVM.
  *
- * Cerminan persis aturan server (coins.js):
- * - harga: override per series/komik, else default; episode GRATIS bila
- *   nomor episode <= free_episodes (default 1). Season TIDAK masuk
- *   aturan gratis — episode no. 1 di season mana pun gratis.
+ * Cerminan persis aturan server (coins.js, CMS v87.1 — per-series):
+ * - harga: override per series/komik, else default; episode GRATIS
+ *   HANYA bila season == 1 DAN nomor episode <= free_episodes
+ *   (default 1). Episode 1 di season 2/3 TIDAK gratis.
  * - unlock: per (kind, target_id, season, no), permanen per pemilik.
  * - VIP: selama aktif, semua episode terkunci gratis (server yang
  *   memutuskan; aplikasi hanya menampilkan dari cache /me).
@@ -41,6 +41,8 @@ object CoinGate {
         val hasSession: Boolean = false,
         val username: String? = null,
         val userId: String? = null,
+        /** Badge centang verifikasi (dari /me; hilang = false). */
+        val verified: Boolean = false,
         val readingPrivate: Boolean = false,
         val balanceUpdatedAtMs: Long = 0L
     )
@@ -72,19 +74,19 @@ object CoinGate {
         return Pricing(defPrice, defFree, overrides)
     }
 
-    /** Cerminan priceFor() server — HARUS sama persis. */
-    fun priceFor(p: Pricing, kind: String, targetId: String, no: Int): Price {
+    /** Cerminan priceFor() server — HARUS sama persis (per-series). */
+    fun priceFor(p: Pricing, kind: String, targetId: String, season: Int, no: Int): Price {
         val ov = p.overrides["$kind:$targetId"]
         val price = ov?.price ?: p.defaultPrice
         val freeN = ov?.freeEpisodes ?: p.freeEpisodesDefault
-        return Price(price, no <= freeN)
+        return Price(price, season == 1 && no <= freeN)
     }
 
     fun isVipActive(state: CoinState, nowMs: Long): Boolean =
         state.vipExpiresAtMs > 0 && state.vipExpiresAtMs > nowMs
 
     sealed class LockState {
-        /** Episode gratis (nomor <= free_episodes). */
+        /** Episode gratis (season 1, nomor <= free_episodes). */
         object Free : LockState()
 
         /** Sudah dibuka (unlock cache / dibaca lokal sebelum v1.1.30). */
@@ -115,7 +117,7 @@ object CoinGate {
     ): LockState {
         val key = unlockKey(kind, targetId, season, no)
         if (key in state.unlocks || locallyRead) return LockState.Unlocked
-        val p = priceFor(state.pricing, kind, targetId, no)
+        val p = priceFor(state.pricing, kind, targetId, season, no)
         if (p.free) return LockState.Free
         if (isVipActive(state, nowMs)) return LockState.Vip
         return LockState.Locked(p.price)

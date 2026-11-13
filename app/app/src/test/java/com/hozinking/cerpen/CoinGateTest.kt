@@ -33,34 +33,53 @@ class CoinGateTest {
 
     @Test
     fun priceForDefaultFreeEpisodeOne() {
-        val p = CoinGate.priceFor(pricing, "cerpen", "lain", 1)
+        val p = CoinGate.priceFor(pricing, "cerpen", "lain", 1, 1)
         assertEquals(10, p.price)
         assertTrue(p.free)
     }
 
     @Test
     fun priceForDefaultLockedEpisodeTwo() {
-        val p = CoinGate.priceFor(pricing, "cerpen", "lain", 2)
+        val p = CoinGate.priceFor(pricing, "cerpen", "lain", 1, 2)
         assertEquals(10, p.price)
         assertEquals(false, p.free)
     }
 
     @Test
     fun priceForOverrideSeries() {
-        // Override: harga 25, gratis s/d episode 2.
-        val p1 = CoinGate.priceFor(pricing, "cerpen", "s1", 2)
+        // Override: harga 25, gratis s/d episode 2 (season 1 saja).
+        val p1 = CoinGate.priceFor(pricing, "cerpen", "s1", 1, 2)
         assertEquals(25, p1.price)
         assertTrue(p1.free)
-        val p2 = CoinGate.priceFor(pricing, "cerpen", "s1", 3)
+        val p2 = CoinGate.priceFor(pricing, "cerpen", "s1", 1, 3)
         assertEquals(25, p2.price)
         assertEquals(false, p2.free)
+        // Override free=2 tidak berlaku di season 2.
+        val p3 = CoinGate.priceFor(pricing, "cerpen", "s1", 2, 2)
+        assertEquals(25, p3.price)
+        assertEquals(false, p3.free)
     }
 
     @Test
-    fun priceForFreeDependsOnlyOnEpisodeNumberNotSeason() {
-        // Episode 1 di season 5 tetap gratis (aturan server).
-        val p = CoinGate.priceFor(pricing, "cerpen", "lain", 1)
+    fun priceForPerSeriesOnlySeasonOneEpisodeOneFree() {
+        // Aturan server v87.1: hanya S1E1 gratis.
+        val s1e1 = CoinGate.priceFor(pricing, "cerpen", "lain", 1, 1)
+        assertTrue(s1e1.free)
+        val s2e1 = CoinGate.priceFor(pricing, "cerpen", "lain", 2, 1)
+        assertEquals(10, s2e1.price)
+        assertEquals(false, s2e1.free)
+        val s3e1 = CoinGate.priceFor(pricing, "cerpen", "lain", 3, 1)
+        assertEquals(10, s3e1.price)
+        assertEquals(false, s3e1.free)
+    }
+
+    @Test
+    fun priceForKomikEpisodeOneFree() {
+        // Komik selalu season 1 di aplikasi — E1 tetap gratis.
+        val p = CoinGate.priceFor(pricing, "komik", "k1", 1, 1)
         assertTrue(p.free)
+        val p2 = CoinGate.priceFor(pricing, "komik", "k1", 1, 2)
+        assertEquals(false, p2.free)
     }
 
     @Test
@@ -87,6 +106,23 @@ class CoinGateTest {
         assertEquals(
             CoinGate.LockState.Free,
             CoinGate.lockState(state(), "cerpen", "lain", 1, 1, false, now)
+        )
+    }
+
+    @Test
+    fun lockStateSeasonTwoEpisodeOneLocked() {
+        // Per-series: S2E1 terkunci 10 koin walau nomor episode 1.
+        assertEquals(
+            CoinGate.LockState.Locked(10),
+            CoinGate.lockState(state(), "cerpen", "lain", 2, 1, false, now)
+        )
+    }
+
+    @Test
+    fun lockStateKomikEpisodeOneFree() {
+        assertEquals(
+            CoinGate.LockState.Free,
+            CoinGate.lockState(state(), "komik", "k1", 1, 1, false, now)
         )
     }
 

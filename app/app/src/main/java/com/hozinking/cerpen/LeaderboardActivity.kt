@@ -123,7 +123,7 @@ class LeaderboardActivity : AppCompatActivity() {
             h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
             h.rank.text = e.rank.toString()
             h.rank.setTextColor(palette.accent)
-            h.username.text = e.username
+            h.username.text = e.username + if (e.verified) " ✓" else ""
             h.username.setTextColor(palette.ink)
             h.minutes.text = if (e.minutes >= 60) {
                 "${e.minutes / 60} jam ${e.minutes % 60} mnt"

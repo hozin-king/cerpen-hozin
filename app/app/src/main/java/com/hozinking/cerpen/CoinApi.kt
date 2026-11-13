@@ -33,6 +33,8 @@ object CoinApi {
         val ownerKey: String?,
         val vipActive: Boolean,
         val vipExpiresAtMs: Long,
+        /** Badge centang verifikasi (server v87.2; hilang = false). */
+        val verified: Boolean,
         val readingPrivate: Boolean,
         val unlocks: Set<String>,
         /** JSON mentah objek pricing (disimpan CoinStore untuk parse ulang). */
@@ -49,7 +51,9 @@ object CoinApi {
         val rank: Int,
         val username: String,
         val seconds: Long,
-        val minutes: Long
+        val minutes: Long,
+        /** Badge centang verifikasi (server v87.2; hilang = false). */
+        val verified: Boolean = false
     )
 
     data class HistoryUnlock(
@@ -77,6 +81,16 @@ object CoinApi {
 
     // ---------- parsing murni (unit-testable) ----------
 
+    /**
+     * Field "verified" server: int 0/1 atau boolean; hilang / rusak
+     * -> false (defensif: deploy server v87.2 berjalan paralel).
+     */
+    private fun optVerified(obj: JSONObject): Boolean = when (val v = obj.opt("verified")) {
+        is Boolean -> v
+        is Number -> v.toInt() != 0
+        else -> false
+    }
+
     fun parseMe(json: JSONObject?): MeResult? {
         if (json == null) return null
         val unlocks = HashSet<String>()
@@ -98,6 +112,7 @@ object CoinApi {
             vipActive = vip?.optBoolean("active", false) ?: false,
             // VIP expires_at server = milidetik (vipStatus vs Date.now()).
             vipExpiresAtMs = vip?.optLong("expires_at", 0) ?: 0L,
+            verified = optVerified(json),
             readingPrivate = json.optBoolean("reading_private", false),
             unlocks = unlocks,
             pricingJson = json.optJSONObject("pricing")?.toString()
@@ -125,7 +140,8 @@ object CoinApi {
                     rank = e.optInt("rank", i + 1),
                     username = e.optString("username", "?"),
                     seconds = e.optLong("seconds", 0),
-                    minutes = e.optLong("minutes", 0)
+                    minutes = e.optLong("minutes", 0),
+                    verified = optVerified(e)
                 )
             )
         }

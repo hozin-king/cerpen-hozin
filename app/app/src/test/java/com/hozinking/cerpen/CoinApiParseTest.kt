@@ -30,6 +30,23 @@ class CoinApiParseTest {
     }
 
     @Test
+    fun parseVerifiedDefensive() {
+        // Server v87.2 kirim verified 0/1; field bisa hilang (deploy paralel).
+        val withInt = JSONObject("""{"verified":1,"balance":0}""")
+        assertTrue(CoinApi.parseMe(withInt)!!.verified)
+        val withBool = JSONObject("""{"verified":true,"balance":0}""")
+        assertTrue(CoinApi.parseMe(withBool)!!.verified)
+        val missing = JSONObject("""{"balance":0}""")
+        assertEquals(false, CoinApi.parseMe(missing)!!.verified)
+        val lb = CoinApi.parseLeaderboard(JSONObject(
+            """{"leaderboard":[{"rank":1,"username":"ani","seconds":60,"minutes":1,"verified":1},
+                               {"rank":2,"username":"budi","seconds":30,"minutes":0}]}"""
+        ))
+        assertTrue(lb[0].verified)
+        assertEquals(false, lb[1].verified)
+    }
+
+    @Test
     fun parseMeGuest() {
         val json = JSONObject(
             """{"owner_key":"device:550e8400-e29b-41d4-a716-446655440000",
@@ -42,6 +59,7 @@ class CoinApiParseTest {
         assertEquals(0, me.balance)
         assertNull(me.username)
         assertEquals(false, me.vipActive)
+        assertEquals(false, me.verified)
         assertTrue(me.unlocks.isEmpty())
     }
 
@@ -75,6 +93,8 @@ class CoinApiParseTest {
         assertEquals("ani", list[0].username)
         assertEquals(7200L, list[0].seconds)
         assertEquals(60L, list[1].minutes)
+        assertEquals(false, list[0].verified)
+        assertEquals(false, list[1].verified)
         assertTrue(CoinApi.parseLeaderboard(null).isEmpty())
         assertTrue(CoinApi.parseLeaderboard(JSONObject("{}")).isEmpty())
     }

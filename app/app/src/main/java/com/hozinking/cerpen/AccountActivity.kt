@@ -176,7 +176,7 @@ class AccountActivity : AppCompatActivity() {
             loggedInSection.visibility = View.VISIBLE
             loginSection.visibility = View.GONE
             registerSection.visibility = View.GONE
-            usernameText.text = state.username ?: "Akun"
+            usernameText.text = (state.username ?: "Akun") + if (state.verified) " ✓" else ""
             usernameText.setTextColor(palette.ink)
             accountIdValue.text = "ID akun: ${state.userId ?: "-"}"
             accountIdValue.setTextColor(palette.muted)
