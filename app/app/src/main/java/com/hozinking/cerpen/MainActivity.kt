@@ -3,6 +3,8 @@ package com.hozinking.cerpen
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -95,6 +97,12 @@ class MainActivity : AppCompatActivity() {
     private var pendingShareToken: String? = null
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
     private var syncBusy = false
+    /** v1.1.28: cek berkala manifest D1 saat aplikasi di foreground. */
+    private val manifestCheckHandler = Handler(Looper.getMainLooper())
+    private val manifestCheckRunnable = Runnable { checkManifestForUpdates() }
+    /** true hanya antara onResume dan onPause — penjaga cek berkala. */
+    @Volatile
+    private var manifestCheckActive = false
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
     private var newestCerpenId: String? = null
     private var newestKomikId: String? = null
@@ -301,6 +309,7 @@ class MainActivity : AppCompatActivity() {
         // v1.1.24: pulihkan dialog keluar yang tertunda (rotasi / proses mati).
         restorePendingExitDialog()
         autoSyncContent()
+        startManifestCheck()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
         }
@@ -311,6 +320,12 @@ class MainActivity : AppCompatActivity() {
             applyKomikList()
         }
         refreshGlass()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // v1.1.28: hentikan cek berkala saat aplikasi tidak di foreground.
+        stopManifestCheck()
     }
 
     /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
@@ -880,16 +895,20 @@ class MainActivity : AppCompatActivity() {
     // ============ AUTO-UPDATE KONTEN (v1.1.6) ============
     // Tiap buka aplikasi / kembali ke aplikasi: cek manifest GitHub dan
     // unduh konten baru (cerpen/berita/komik) secara otomatis, tanpa
-    // aksi pengguna. Throttle maks 1x per 30 menit (dicatat di prefs
-    // yang sama dengan cek update aplikasi). Fail-open: tanpa internet
-    // atau gagal = diam, konten lama tetap bisa dibaca. Toast HANYA
-    // bila ada konten baru — bila sudah terbaru, diam.
-    private fun autoSyncContent() {
+    // aksi pengguna. Throttle maks 1x per 5 menit (v1.1.28: dulu 30
+    // menit — aplikasi yang dibuka lagi dalam 30 menit tidak pernah
+    // tahu ada konten baru). Fail-open: tanpa internet atau gagal =
+    // diam, konten lama tetap bisa dibaca. Toast HANYA bila ada konten
+    // baru — bila sudah terbaru, diam.
+    /** Jeda cek berkala manifest saat aplikasi di foreground (v1.1.28). */
+    private val manifestCheckIntervalMs = 5 * 60 * 1000L
+
+    private fun autoSyncContent(force: Boolean = false) {
         // Jangan tumpuk dengan sync manual yang sedang berjalan.
         if (syncBusy) return
         val now = System.currentTimeMillis()
         val last = updatePrefs.getLong("last_auto_sync_ms", 0)
-        if (now - last < 30 * 60 * 1000L) return
+        if (!force && now - last < 5 * 60 * 1000L) return
         updatePrefs.edit().putLong("last_auto_sync_ms", now).apply()
         setSyncBusy(true)
         DataManager.syncContent(this, onProgress = { done, total, label ->
@@ -902,6 +921,61 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Konten baru diunduh", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    /** Mulai cek berkala manifest (dipanggil di onResume). */
+    private fun startManifestCheck() {
+        manifestCheckActive = true
+        scheduleManifestCheck()
+    }
+
+    /** Hentikan cek berkala manifest (dipanggil di onPause). */
+    private fun stopManifestCheck() {
+        manifestCheckActive = false
+        manifestCheckHandler.removeCallbacks(manifestCheckRunnable)
+    }
+
+    /** Jadwalkan cek manifest berikutnya (hanya bila masih resumed). */
+    private fun scheduleManifestCheck() {
+        manifestCheckHandler.removeCallbacks(manifestCheckRunnable)
+        if (manifestCheckActive) {
+            manifestCheckHandler.postDelayed(manifestCheckRunnable, manifestCheckIntervalMs)
+        }
+    }
+
+    /**
+     * Cek berkala manifest D1 saat aplikasi terbuka (v1.1.28): hanya
+     * fetchManifest yang murah; bila versinya naik dari versi tersimpan
+     * -> jalankan sync penuh (force, lewati throttle auto-sync) lalu
+     * muat ulang daftar + toast seperti jalur auto-sync. Bila versi
+     * sama -> diam, jangan sentuh daftar. Fail-open: tanpa internet /
+     * gagal = diam, konten lama tetap bisa dibaca. Tanpa service atau
+     * worker latar — cukup Handler yang hidup saat foreground.
+     */
+    private fun checkManifestForUpdates() {
+        if (!manifestCheckActive || isFinishing || isDestroyed) {
+            scheduleManifestCheck()
+            return
+        }
+        Thread {
+            try {
+                val key = ContentGuard.getKey()
+                val manifest = key?.let { CerpenApi.fetchManifest(it) }
+                if (manifest != null && manifest.version > 0 &&
+                    manifest.version > DataManager.storedD1Version(this@MainActivity)
+                ) {
+                    runOnUiThread {
+                        if (manifestCheckActive && !isFinishing && !isDestroyed) {
+                            autoSyncContent(force = true)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                runOnUiThread { scheduleManifestCheck() }
+            }
+        }.start()
     }
 
     private fun syncNow() {

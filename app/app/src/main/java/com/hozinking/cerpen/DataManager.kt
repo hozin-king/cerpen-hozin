@@ -518,6 +518,19 @@ object DataManager {
 
     private const val KEY_D1_VERSION = "d1_version"
 
+    /** Versi manifest D1 terakhir yang berhasil dirakit (0 bila belum pernah). */
+    fun storedD1Version(context: Context): Int =
+        d1Prefs(context).getInt(KEY_D1_VERSION, 0)
+
+    /**
+     * Verifikasi penuh terakhir (dekripsi + SHA 3 JSON). v1.1.28:
+     * verifikasi penuh hanya 1x per hari — cek harian cukup jalur murah.
+     */
+    private const val KEY_D1_LAST_FULL_VERIFY_MS = "d1_last_full_verify_ms"
+
+    /** Jendela verifikasi penuh: maksimal 1x per hari. */
+    private const val FULL_VERIFY_INTERVAL_MS = 24 * 60 * 60 * 1000L
+
     /**
      * Manifest lokal saat ini hasil rakitan D1 (true) atau dari GitHub
      * (false). Penting: SHA manifest GitHub hanya cocok dengan file
@@ -583,14 +596,28 @@ object DataManager {
         val storedVersion = prefs.getInt(KEY_D1_VERSION, 0)
         val haveFiles = cerpenEncFile(context).exists() && newsEncFile(context).exists() &&
             komikEncFile(context).exists() && manifestEncFile(context).exists()
-        // Lewati hanya bila versi sama DAN file lokal lolos verifikasi
-        // lawan manifest saat ini (menutup jendela crash / manifest
-        // GitHub yang menimpa di tengah jalan).
-        if (manifest.version == storedVersion && haveFiles &&
-            verifyLocalJsonFiles(context, key)
-        ) {
-            Log.i(TAG, "sync D1: sudah versi ${manifest.version}, lewati")
-            return SyncResult(false, 0, 0, 0)
+        // v1.1.28 — jalur cepat tanpa-perubahan: cek MURAH dulu (file
+        // ada + ukuran > 0). Verifikasi penuh (dekripsi + SHA) hanya
+        // 1x/hari atau saat cek murah gagal — jangan di setiap cek sync,
+        // itu yang bikin refresh terasa lama padahal tidak ada yang baru.
+        if (manifest.version == storedVersion && haveFiles) {
+            val now = System.currentTimeMillis()
+            val lastFullVerify = prefs.getLong(KEY_D1_LAST_FULL_VERIFY_MS, 0)
+            val cheapOk = cerpenEncFile(context).length() > 0L &&
+                newsEncFile(context).length() > 0L &&
+                komikEncFile(context).length() > 0L &&
+                manifestEncFile(context).length() > 0L
+            if (cheapOk && now - lastFullVerify < FULL_VERIFY_INTERVAL_MS) {
+                Log.i(TAG, "sync D1: sudah versi ${manifest.version}, lewati (cek murah)")
+                return SyncResult(false, 0, 0, 0)
+            }
+            if (verifyLocalJsonFiles(context, key)) {
+                prefs.edit().putLong(KEY_D1_LAST_FULL_VERIFY_MS, now).apply()
+                Log.i(TAG, "sync D1: sudah versi ${manifest.version}, lewati (verifikasi penuh)")
+                return SyncResult(false, 0, 0, 0)
+            }
+            // Verifikasi penuh gagal (file rusak / manifest menimpa di
+            // tengah jalan) -> rebuild di bawah seperti biasa.
         }
         report(0, 0, "Mengunduh konten…")
         val dump = CerpenApi.fetchAll(key) ?: return null
