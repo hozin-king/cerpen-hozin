@@ -80,6 +80,15 @@ class CoinApiParseTest {
     }
 
     @Test
+    fun parseLeaderboardEmptySuccess() {
+        // Respons live saat board kosong (200 {"ok":true,"leaderboard":[]}):
+        // sukses dengan daftar kosong — bukan gagal. fetchLeaderboard hanya
+        // mengembalikan null saat status non-2xx (pola yang sama dengan fetchHistory).
+        val json = JSONObject("""{"ok":true,"period":"weekly","leaderboard":[]}""")
+        assertTrue(CoinApi.parseLeaderboard(json).isEmpty())
+    }
+
+    @Test
     fun parseHistory() {
         val json = JSONObject(
             """{"unlocks":[{"kind":"cerpen","target_id":"s1","season":1,"no":5,"created_at":1790000000}],

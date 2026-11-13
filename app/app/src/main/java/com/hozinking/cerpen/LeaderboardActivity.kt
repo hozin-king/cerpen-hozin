@@ -88,13 +88,14 @@ class LeaderboardActivity : AppCompatActivity() {
             val data = CoinApi.fetchLeaderboard(this, period)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                if (data == null) {
+                    Toast.makeText(this, "Tidak bisa memuat peringkat — periksa internet", Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
                 entries.clear()
                 entries.addAll(data)
                 adapter.notifyDataSetChanged()
                 emptyText.visibility = if (data.isEmpty()) View.VISIBLE else View.GONE
-                if (data.isEmpty()) {
-                    Toast.makeText(this, "Tidak bisa memuat peringkat — periksa internet", Toast.LENGTH_SHORT).show()
-                }
             }
         }.start()
     }

@@ -282,10 +282,10 @@ object CoinApi {
         return request(ctx, "POST", "/api/cerpen-coins/reading", body)
     }
 
-    fun fetchLeaderboard(ctx: Context, period: String): List<LeaderboardEntry> {
+    fun fetchLeaderboard(ctx: Context, period: String): List<LeaderboardEntry>? {
         val p = if (period == "all") "all" else "weekly"
         val r = request(ctx, "GET", "/api/cerpen-coins/leaderboard?period=$p")
-        return if (r.status in 200..299) parseLeaderboard(r.json) else emptyList()
+        return if (r.status in 200..299) parseLeaderboard(r.json) else null
     }
 
     fun fetchHistory(ctx: Context): HistoryResult? {
