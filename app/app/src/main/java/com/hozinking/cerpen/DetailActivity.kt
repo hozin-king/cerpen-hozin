@@ -175,6 +175,8 @@ class DetailActivity : AppCompatActivity() {
                 if (now) "Ditambahkan ke Koleksi" else "Dihapus dari Koleksi",
                 Toast.LENGTH_SHORT
             ).show()
+            // v1.1.34: ikut akun — antre ke server (bila login & online).
+            BookmarkSync.onToggle(this, "cerpen", c.id, now)
         }
         updateBookmarkButton()
     }

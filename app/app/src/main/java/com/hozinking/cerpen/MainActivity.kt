@@ -327,6 +327,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         autoSyncContent()
+        // v1.1.34: bookmark ikut akun — kirim antrean + tarik dari server.
+        BookmarkSync.syncNow(this)
     }
 
     override fun onResume() {

@@ -784,8 +784,9 @@ object ProgressStore {
     // Tombol "book" di halaman detail menyimpan SELURUH konten ke
     // Koleksi (bukan satu episode seperti bookmark di atas). Kunci
     // "kind|id" (kind = "cerpen" | "komik" | "berita"); disimpan lokal
-    // di SharedPreferences yang sama. Ikut akun belum didukung —
-    // belum ada endpoint server untuk bookmark.
+    // di SharedPreferences yang sama. v1.1.34: ikut akun via
+    // BookmarkSync (tambah/hapus ke server + tarik + gabung saat
+    // login/buka aplikasi; guest tetap lokal sampai login).
     data class SeriesBookmark(val kind: String, val id: String)
 
     fun seriesBookmarkKey(kind: String, id: String) = "$kind|$id"
@@ -823,6 +824,15 @@ object ProgressStore {
         val set = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getStringSet(KEY_SERIES_BOOKMARKS, emptySet()) ?: emptySet()
         return set.mapNotNull { parseSeriesBookmark(it) }
+    }
+
+    /** v1.1.34: pastikan bookmark ada (tambah bila belum ada) — dipakai sinkron server (union). */
+    fun ensureSeriesBookmarked(context: Context, kind: String, id: String) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val set = HashSet(prefs.getStringSet(KEY_SERIES_BOOKMARKS, emptySet()) ?: emptySet())
+        if (set.add(seriesBookmarkKey(kind, id))) {
+            prefs.edit().putStringSet(KEY_SERIES_BOOKMARKS, set).apply()
+        }
     }
 
     // ---- Riwayat baca (maks 10, terbaru dulu) ----

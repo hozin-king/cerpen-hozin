@@ -255,6 +255,8 @@ class AccountActivity : AppCompatActivity() {
                         val s = CoinApi.parseSession(r.json)
                         if (s != null) {
                             CoinStore.setSession(this, s.session, s.username, s.ownerKey)
+                            // v1.1.34: bookmark ikut akun — unggah bookmark lokal + tarik dari server.
+                            BookmarkSync.syncNow(this, force = true)
                             statusText.text = ""
                             toast("Masuk sebagai ${s.username ?: u}")
                             CoinUi.refreshMeAsync(this) { refresh() }
@@ -303,6 +305,8 @@ class AccountActivity : AppCompatActivity() {
                         if (s != null) {
                             // Langsung aktif (tanpa OTP) — simpan sesi.
                             CoinStore.setSession(this, s.session, s.username, s.ownerKey)
+                            // v1.1.34: bookmark ikut akun — unggah bookmark lokal + tarik dari server.
+                            BookmarkSync.syncNow(this, force = true)
                             statusText.text = ""
                             toast("Akun dibuat — selamat datang, ${s.username ?: u}")
                             CoinUi.refreshMeAsync(this) { refresh() }
@@ -358,6 +362,8 @@ class AccountActivity : AppCompatActivity() {
                         val s = CoinApi.parseSession(r.json)
                         if (s != null) {
                             CoinStore.setSession(this, s.session, s.username, s.ownerKey)
+                            // v1.1.34: bookmark ikut akun — unggah bookmark lokal + tarik dari server.
+                            BookmarkSync.syncNow(this, force = true)
                             statusText.text = ""
                             toast("Email terverifikasi — selamat datang!")
                             CoinUi.refreshMeAsync(this) { refresh() }
