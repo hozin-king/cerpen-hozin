@@ -36,7 +36,7 @@
         android:paddingLeft="16dp"
         android:paddingTop="16dp"
         android:paddingRight="16dp"
-        android:paddingBottom="104dp">
+        android:paddingBottom="140dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -132,7 +132,10 @@
                 android:imeOptions="actionSearch"
                 android:inputType="text" />
 
-            <!-- Filter genre -->
+            <!-- Filter jenis + genre — v1.1.33: SATU baris horizontal
+                 yang bisa di-scroll (dulu dua baris bertumpuk: genre +
+                 jenis). Chip jenis (Semua/Cerbung/Cergam) dulu, lalu chip
+                 genre (disembunyikan bila jenis = Cergam). -->
             <HorizontalScrollView
                 android:id="@+id/genre_scroll"
                 android:layout_width="match_parent"
@@ -147,26 +150,12 @@
                     android:orientation="horizontal" />
             </HorizontalScrollView>
 
-            <!-- v1.1.12: filter jenis — Cerbung / Cergam (diisi runtime). -->
-            <HorizontalScrollView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:scrollbars="none">
-
-                <LinearLayout
-                    android:id="@+id/type_row"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal" />
-            </HorizontalScrollView>
-
             <!-- Lanjutkan Membaca -->
             <LinearLayout
                 android:id="@+id/continue_section"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="20dp"
                 android:background="@drawable/card_accent"
                 android:orientation="vertical"
                 android:padding="16dp"
@@ -212,7 +201,7 @@
                 android:id="@+id/all_cerpen_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="28dp"
                 android:text="Semua Cerbung"
                 android:textColor="@color/ink"
                 android:textSize="18sp"
@@ -227,7 +216,7 @@
                 android:id="@+id/cerpen_list"
                 android:layout_width="match_parent"
                 android:layout_height="480dp"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
@@ -243,7 +232,7 @@
                 android:id="@+id/news_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="28dp"
                 android:text="Berita Teknologi"
                 android:textColor="@color/ink"
                 android:textSize="18sp"
@@ -278,7 +267,7 @@
                 android:id="@+id/news_list"
                 android:layout_width="match_parent"
                 android:layout_height="560dp"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
@@ -294,7 +283,7 @@
                 android:id="@+id/komik_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="28dp"
                 android:text="Komik"
                 android:textColor="@color/ink"
                 android:textSize="18sp"
@@ -329,7 +318,7 @@
                 android:id="@+id/komik_list"
                 android:layout_width="match_parent"
                 android:layout_height="480dp"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="12dp"
                 android:nestedScrollingEnabled="true" />
         </LinearLayout>
 
@@ -345,7 +334,7 @@
                 android:id="@+id/koleksi_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
+                android:layout_marginTop="28dp"
                 android:text="Koleksi"
                 android:textColor="@color/ink"
                 android:textSize="18sp"
@@ -380,7 +369,7 @@
                     android:id="@+id/history_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="28dp"
                     android:text="Riwayat Baca"
                     android:textColor="@color/ink"
                     android:textSize="18sp"
@@ -406,7 +395,7 @@
                     android:id="@+id/bookmark_title"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
+                    android:layout_marginTop="28dp"
                     android:text="Ditandai 🔖"
                     android:textColor="@color/ink"
                     android:textSize="18sp"
@@ -416,7 +405,34 @@
                     android:id="@+id/bookmark_list"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="12dp"
+                    android:nestedScrollingEnabled="false" />
+            </LinearLayout>
+
+            <!-- v1.1.33: konten yang disimpan lewat tombol bookmark di
+                 halaman detail (cerpen/komik/berita) — ketuk untuk buka detail. -->
+            <LinearLayout
+                android:id="@+id/series_bookmark_section"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/series_bookmark_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="28dp"
+                    android:text="Disimpan 📚"
+                    android:textColor="@color/ink"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/series_bookmark_list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
                     android:nestedScrollingEnabled="false" />
             </LinearLayout>
         </LinearLayout>

@@ -49,6 +49,8 @@ class NewsDetailActivity : AppCompatActivity() {
     private lateinit var metaText: TextView
     private lateinit var downloadButton: Button
     private lateinit var shareButton: Button
+    /** v1.1.33: tombol bookmark konten (simpan ke Koleksi). */
+    private lateinit var bookmarkButton: Button
     // v1.1.31: baris sosial (view + like + dislike + lapor).
     private var socialBar: SocialBar? = null
 
@@ -69,6 +71,7 @@ class NewsDetailActivity : AppCompatActivity() {
         metaText = findViewById(R.id.news_meta)
         downloadButton = findViewById(R.id.news_download_button)
         shareButton = findViewById(R.id.news_share_button)
+        bookmarkButton = findViewById(R.id.news_bookmark_button)
 
         val title = intent.getStringExtra(EXTRA_TITLE) ?: ""
         val source = intent.getStringExtra(EXTRA_SOURCE) ?: ""
@@ -97,6 +100,19 @@ class NewsDetailActivity : AppCompatActivity() {
             val a = article ?: return@setOnClickListener
             ShareLink.shareContent(this, "berita", a.title)
         }
+        // v1.1.33: tombol bookmark konten (simpan ke Koleksi). Kunci
+        // = ref sosial (id baris bila ada, judul bila tidak).
+        bookmarkButton.setOnClickListener {
+            val a = article ?: return@setOnClickListener
+            val now = ProgressStore.toggleSeriesBookmark(this, "berita", SocialApi.newsRef(a))
+            updateBookmarkButton()
+            Toast.makeText(
+                this,
+                if (now) "Ditambahkan ke Koleksi" else "Dihapus dari Koleksi",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        updateBookmarkButton()
         applyThemeAndFont()
         lastTheme = ProgressStore.getTheme(this)
         // v1.1.31: baris sosial — POST view sekali saat artikel dibuka.
@@ -133,6 +149,7 @@ class NewsDetailActivity : AppCompatActivity() {
         refreshDownloadButton()
         // v1.1.32: lanjutkan refresh live angka sosial.
         socialBar?.startLiveUpdates()
+        updateBookmarkButton()
     }
 
     override fun onPause() {
@@ -159,6 +176,13 @@ class NewsDetailActivity : AppCompatActivity() {
             return true
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    /** v1.1.33: ☆ = belum disimpan, 🔖 = sudah disimpan. */
+    private fun updateBookmarkButton() {
+        val a = article ?: return
+        bookmarkButton.text =
+            if (ProgressStore.isSeriesBookmarked(this, "berita", SocialApi.newsRef(a))) "🔖" else "☆"
     }
 
     // v1.1.18: nyalakan denyut di semua blok teks yang sedang tampil.

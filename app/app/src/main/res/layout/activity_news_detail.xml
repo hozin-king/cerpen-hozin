@@ -46,6 +46,24 @@
             android:text="↗ Bagikan"
             android:textColor="@color/white"
             android:textSize="13sp" />
+
+        <!-- v1.1.33: tombol bookmark konten (simpan ke Koleksi) —
+             ☆ = belum disimpan, 🔖 = sudah disimpan. -->
+        <Button
+            android:id="@+id/news_bookmark_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:contentDescription="Simpan ke Koleksi"
+            android:text="☆"
+            android:textColor="@color/white"
+            android:textSize="13sp" />
     </LinearLayout>
 
     <ScrollView

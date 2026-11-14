@@ -61,6 +61,17 @@
                     android:textSize="13sp" />
             </LinearLayout>
 
+            <!-- v1.1.33: tombol bookmark konten (simpan ke Koleksi) —
+                 di samping gear; ☆ = belum disimpan, 🔖 = sudah disimpan. -->
+            <Button
+                android:id="@+id/detail_bookmark_button"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:contentDescription="Simpan ke Koleksi"
+                android:text="☆"
+                android:textColor="@color/white" />
+
             <Button
                 android:id="@+id/detail_settings_button"
                 android:layout_width="wrap_content"

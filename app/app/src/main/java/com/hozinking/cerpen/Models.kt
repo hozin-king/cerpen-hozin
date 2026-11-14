@@ -665,6 +665,8 @@ object ProgressStore {
     private const val KEY_TEXT_SIZE = "text_size_sp"
     private const val KEY_THEME = "reader_theme"
     private const val KEY_BOOKMARKS = "bookmarks"
+    /** v1.1.33: bookmark konten (series) — "kind|id", kind = cerpen/komik/berita. */
+    private const val KEY_SERIES_BOOKMARKS = "series_bookmarks"
     private const val KEY_HISTORY = "history"
 
     /** Tema baca: 0 = Siang (kertas), 1 = Malam, 2 = Sepia. */
@@ -776,6 +778,51 @@ object ProgressStore {
                 Bookmark(parts[0], parts[1].toIntOrNull() ?: 1, parts[2].toIntOrNull() ?: 1)
             } else null
         }
+    }
+
+    // ---- Bookmark konten (series) — v1.1.33 ----
+    // Tombol "book" di halaman detail menyimpan SELURUH konten ke
+    // Koleksi (bukan satu episode seperti bookmark di atas). Kunci
+    // "kind|id" (kind = "cerpen" | "komik" | "berita"); disimpan lokal
+    // di SharedPreferences yang sama. Ikut akun belum didukung —
+    // belum ada endpoint server untuk bookmark.
+    data class SeriesBookmark(val kind: String, val id: String)
+
+    fun seriesBookmarkKey(kind: String, id: String) = "$kind|$id"
+
+    /** Murni (tanpa Android) supaya bisa diuji unit. */
+    fun parseSeriesBookmark(raw: String): SeriesBookmark? {
+        val parts = raw.split("|", limit = 2)
+        if (parts.size != 2) return null
+        val (kind, id) = parts
+        if (kind.isBlank() || id.isBlank()) return null
+        return SeriesBookmark(kind, id)
+    }
+
+    fun isSeriesBookmarked(context: Context, kind: String, id: String): Boolean {
+        val set = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_SERIES_BOOKMARKS, emptySet()) ?: emptySet()
+        return set.contains(seriesBookmarkKey(kind, id))
+    }
+
+    /** Toggle bookmark konten; mengembalikan status baru (true = disimpan). */
+    fun toggleSeriesBookmark(context: Context, kind: String, id: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val set = HashSet(prefs.getStringSet(KEY_SERIES_BOOKMARKS, emptySet()) ?: emptySet())
+        val key = seriesBookmarkKey(kind, id)
+        val now = if (set.contains(key)) {
+            set.remove(key); false
+        } else {
+            set.add(key); true
+        }
+        prefs.edit().putStringSet(KEY_SERIES_BOOKMARKS, set).apply()
+        return now
+    }
+
+    fun getSeriesBookmarks(context: Context): List<SeriesBookmark> {
+        val set = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_SERIES_BOOKMARKS, emptySet()) ?: emptySet()
+        return set.mapNotNull { parseSeriesBookmark(it) }
     }
 
     // ---- Riwayat baca (maks 10, terbaru dulu) ----

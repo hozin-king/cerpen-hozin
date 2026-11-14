@@ -116,7 +116,7 @@ class CerpenAdapter(
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
         h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
-        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.text = "⬇"
         h.downloadButton.isEnabled = true
         h.downloadButton.setOnClickListener {
             val p = h.bindingAdapterPosition
@@ -219,7 +219,7 @@ class NewsAdapter(
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
         h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
-        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.text = "⬇"
         h.downloadButton.isEnabled = true
         h.downloadButton.setOnClickListener {
             val p = h.bindingAdapterPosition
@@ -266,6 +266,40 @@ class HistoryAdapter(
         h.meta.text = "Season $season · Episode ${ep.no} · ${cerpen.genre}"
         h.meta.setTextColor(palette.muted)
         h.itemView.setOnClickListener { onClick(cerpen, season, ep) }
+    }
+
+    override fun getItemCount(): Int = items.size
+}
+
+/** Baris konten yang disimpan lewat tombol bookmark di halaman detail
+ *  (v1.1.33): judul + info jenis — ketuk untuk buka halaman detail.
+ *  Memakai layout item riwayat yang sama (judul + meta). */
+class SeriesBookmarkAdapter(
+    private val items: List<Triple<String, String, () -> Unit>>,
+    private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
+    private val textScale: Float = 1f
+) : RecyclerView.Adapter<SeriesBookmarkAdapter.VH>() {
+
+    class VH(v: View) : RecyclerView.ViewHolder(v) {
+        val title: TextView = v.findViewById(R.id.history_title)
+        val meta: TextView = v.findViewById(R.id.history_meta)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
+        val v = LayoutInflater.from(parent.context)
+            .inflate(R.layout.item_history, parent, false)
+        return VH(v)
+    }
+
+    override fun onBindViewHolder(h: VH, pos: Int) {
+        val (title, meta, onClick) = items[pos]
+        h.itemView.background = ThemeHelper.cardBackground(h.itemView.context, palette)
+        h.title.text = title
+        h.title.setTextColor(palette.ink)
+        h.title.textSize = 15f * textScale
+        h.meta.text = meta
+        h.meta.setTextColor(palette.muted)
+        h.itemView.setOnClickListener { onClick() }
     }
 
     override fun getItemCount(): Int = items.size
@@ -462,7 +496,7 @@ class KomikAdapter(
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
         h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
-        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.text = "⬇"
         h.downloadButton.isEnabled = true
         h.downloadButton.setOnClickListener {
             val p = h.bindingAdapterPosition
@@ -599,7 +633,7 @@ class CerbungAdapter(
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
         h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
-        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.text = "⬇"
         h.downloadButton.isEnabled = true
         h.downloadButton.setOnClickListener {
             val p = h.bindingAdapterPosition
@@ -664,7 +698,7 @@ class CerbungAdapter(
         h.offlineIcon.visibility = if (offline) View.VISIBLE else View.GONE
         if (offline) h.offlineIcon.imageTintList = ColorStateList.valueOf(palette.accent)
         h.downloadButton.visibility = if (offline) View.GONE else View.VISIBLE
-        h.downloadButton.text = "⬇ Unduh"
+        h.downloadButton.text = "⬇"
         h.downloadButton.isEnabled = true
         h.downloadButton.setOnClickListener {
             val p = h.bindingAdapterPosition

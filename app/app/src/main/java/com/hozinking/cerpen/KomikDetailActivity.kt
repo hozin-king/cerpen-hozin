@@ -31,6 +31,8 @@ class KomikDetailActivity : AppCompatActivity() {
     private lateinit var loading: ProgressBar
     private lateinit var downloadButton: Button
     private lateinit var shareButton: Button
+    /** v1.1.33: tombol bookmark konten (simpan ke Koleksi). */
+    private lateinit var bookmarkButton: Button
     private lateinit var continueButton: Button
     private lateinit var offlineIcon: ImageView
     private lateinit var offlineLabel: TextView
@@ -55,6 +57,7 @@ class KomikDetailActivity : AppCompatActivity() {
         loading = findViewById(R.id.loading)
         downloadButton = findViewById(R.id.detail_download_button)
         shareButton = findViewById(R.id.detail_share_button)
+        bookmarkButton = findViewById(R.id.detail_bookmark_button)
         continueButton = findViewById(R.id.detail_continue_button)
         offlineIcon = findViewById(R.id.detail_offline_icon)
         offlineLabel = findViewById(R.id.detail_offline_label)
@@ -92,6 +95,7 @@ class KomikDetailActivity : AppCompatActivity() {
             episodeList.adapter = episodeAdapter(it)
             refreshDownloadState()
             refreshContinueButton()
+            updateBookmarkButton()
         }
         // v1.1.30: validasi ulang unlock dari server tiap kembali (bila
         // online) — tampilan kunci di-refresh dari /me, bukan cache lama.
@@ -137,6 +141,24 @@ class KomikDetailActivity : AppCompatActivity() {
         shareButton.setOnClickListener {
             ShareLink.shareContent(this, "komik", k.id)
         }
+        // v1.1.33: tombol bookmark konten (simpan ke Koleksi).
+        bookmarkButton.setOnClickListener {
+            val now = ProgressStore.toggleSeriesBookmark(this, "komik", k.id)
+            updateBookmarkButton()
+            Toast.makeText(
+                this,
+                if (now) "Ditambahkan ke Koleksi" else "Dihapus dari Koleksi",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+        updateBookmarkButton()
+    }
+
+    /** v1.1.33: ☆ = belum disimpan, 🔖 = sudah disimpan. */
+    private fun updateBookmarkButton() {
+        val k = komik ?: return
+        bookmarkButton.text =
+            if (ProgressStore.isSeriesBookmarked(this, "komik", k.id)) "🔖" else "☆"
     }
 
     /** v1.1.13: tombol Lanjutkan bila ada progres baca komik ini

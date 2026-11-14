@@ -13,7 +13,6 @@ import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -77,13 +76,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchNewsInput: EditText
     private lateinit var searchKomikInput: EditText
     private lateinit var genreRow: LinearLayout
-    private lateinit var genreScroll: HorizontalScrollView
-    private lateinit var typeRow: LinearLayout
     private lateinit var cerpenList: RecyclerView
     private lateinit var historySection: LinearLayout
     private lateinit var historyList: RecyclerView
     private lateinit var bookmarkSection: LinearLayout
     private lateinit var bookmarkList: RecyclerView
+    /** v1.1.33: konten yang disimpan lewat tombol bookmark detail. */
+    private lateinit var seriesBookmarkSection: LinearLayout
+    private lateinit var seriesBookmarkList: RecyclerView
     private lateinit var newsList: RecyclerView
     private lateinit var komikList: RecyclerView
     private lateinit var loading: ProgressBar
@@ -194,17 +194,17 @@ class MainActivity : AppCompatActivity() {
         searchNewsInput = findViewById(R.id.search_news_input)
         searchKomikInput = findViewById(R.id.search_komik_input)
         genreRow = findViewById(R.id.genre_row)
-        genreScroll = findViewById(R.id.genre_scroll)
-        typeRow = findViewById(R.id.type_row)
         // v1.1.12: latar kaca dock menangkap konten di baliknya.
         dockBarBg.backdropView = mainScroll
         dockCariBg.backdropView = mainScroll
-        buildTypeChips()
+        buildFilterChips()
         cerpenList = findViewById(R.id.cerpen_list)
         historySection = findViewById(R.id.history_section)
         historyList = findViewById(R.id.history_list)
         bookmarkSection = findViewById(R.id.bookmark_section)
         bookmarkList = findViewById(R.id.bookmark_list)
+        seriesBookmarkSection = findViewById(R.id.series_bookmark_section)
+        seriesBookmarkList = findViewById(R.id.series_bookmark_list)
         newsList = findViewById(R.id.news_list)
         komikList = findViewById(R.id.komik_list)
         loading = findViewById(R.id.loading)
@@ -225,13 +225,15 @@ class MainActivity : AppCompatActivity() {
                 1 -> newsList.canScrollVertically(-1)
                 2 -> komikList.canScrollVertically(-1)
                 else -> historyList.canScrollVertically(-1) ||
-                    bookmarkList.canScrollVertically(-1)
+                    bookmarkList.canScrollVertically(-1) ||
+                    seriesBookmarkList.canScrollVertically(-1)
             }
         }
 
         cerpenList.layoutManager = LinearLayoutManager(this)
         historyList.layoutManager = LinearLayoutManager(this)
         bookmarkList.layoutManager = LinearLayoutManager(this)
+        seriesBookmarkList.layoutManager = LinearLayoutManager(this)
         newsList.layoutManager = LinearLayoutManager(this)
         komikList.layoutManager = LinearLayoutManager(this)
 
@@ -571,7 +573,7 @@ class MainActivity : AppCompatActivity() {
                 newestCerpenId = cerpenData.firstOrNull()?.id
                 newestKomikId = komikData.firstOrNull()?.id
                 loading.visibility = View.GONE
-                buildGenreChips()
+                buildFilterChips()
                 applyCerpenFilter()
                 applyNewsList()
                 applyKomikList()
@@ -692,84 +694,56 @@ class MainActivity : AppCompatActivity() {
         startActivity(i)
     }
 
-    private fun buildGenreChips() {
+    /** Chip filter SATU baris (v1.1.33): jenis dulu (Semua/Cerbung/
+     *  Cergam), lalu genre (disembunyikan bila jenis = Cergam — genre
+     *  hanya memfilter cerpen). Dulu dua baris bertumpuk (genre + jenis).
+     *  Satu builder untuk keduanya (dulu buildGenreChips + buildTypeChips
+     *  yang isinya nyaris identik). */
+    private fun buildFilterChips() {
         genreRow.removeAllViews()
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
-        val genres = listOf("Semua") + cerpenData.map { it.genre }.distinct()
-        for (g in genres) {
+        val d = resources.displayMetrics.density
+        fun makeChip(label: String, selected: Boolean, onClick: () -> Unit) {
             val chip = Button(this).apply {
-                text = g
+                text = label
                 textSize = 13f
                 isSingleLine = true
-                // BUG 3: Button bawaan punya minWidth 88dp/minHeight 48dp dan
+                // Button bawaan punya minWidth 88dp/minHeight 48dp dan
                 // padding 0 begitu setBackgroundColor() mengganti background
-                // 9-patch bawaan (yang memberi inset) dengan ColorDrawable —
-                // teks menempel/terpotong di tepi chip. Nol-kan minimum
-                // bawaan dan beri padding eksplisit agar lebar chip selalu
-                // = lebar teks + padding, untuk SEMUA genre.
+                // 9-patch bawaan dengan ColorDrawable — teks menempel/
+                // terpotong di tepi chip. Nol-kan minimum bawaan dan beri
+                // padding eksplisit agar lebar chip = lebar teks + padding.
                 minimumWidth = 0
                 minimumHeight = 0
-                val d = resources.displayMetrics.density
                 setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
-                setTextColor(
-                    if (g == selectedGenre) palette.onAccent
-                    else palette.accent
-                )
-                setBackgroundColor(
-                    if (g == selectedGenre) palette.accent
-                    else palette.card
-                )
+                setTextColor(if (selected) palette.onAccent else palette.accent)
+                setBackgroundColor(if (selected) palette.accent else palette.card)
                 val params = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 )
                 params.marginEnd = 8
                 layoutParams = params
-                setOnClickListener {
-                    selectedGenre = g
-                    buildGenreChips()
-                    applyCerpenFilter()
-                }
+                setOnClickListener { onClick() }
             }
             genreRow.addView(chip)
         }
-    }
-
-    /** Chip filter jenis (v1.1.12): Semua / Cerbung / Cergam. Genre hanya
-     * memfilter cerpen — saat jenis = Cergam, baris genre disembunyikan. */
-    private fun buildTypeChips() {
-        typeRow.removeAllViews()
-        val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         for (t in listOf("Semua", "Cerbung", "Cergam")) {
-            val chip = Button(this).apply {
-                text = t
-                textSize = 13f
-                isSingleLine = true
-                minimumWidth = 0
-                minimumHeight = 0
-                val d = resources.displayMetrics.density
-                setPadding((16 * d).toInt(), (8 * d).toInt(), (16 * d).toInt(), (8 * d).toInt())
-                setTextColor(
-                    if (t == selectedType) palette.onAccent
-                    else palette.accent
-                )
-                setBackgroundColor(
-                    if (t == selectedType) palette.accent
-                    else palette.card
-                )
-                val params = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-                params.marginEnd = 8
-                layoutParams = params
-                setOnClickListener {
-                    selectedType = t
-                    buildTypeChips()
+            makeChip(t, t == selectedType) {
+                selectedType = t
+                buildFilterChips()
+                applyCerpenFilter()
+            }
+        }
+        if (selectedType != "Cergam") {
+            val genres = listOf("Semua") + cerpenData.map { it.genre }.distinct()
+            for (g in genres) {
+                makeChip(g, g == selectedGenre) {
+                    selectedGenre = g
+                    buildFilterChips()
                     applyCerpenFilter()
                 }
             }
-            typeRow.addView(chip)
         }
     }
 
@@ -800,7 +774,6 @@ class MainActivity : AppCompatActivity() {
         loadSeriesSocialStats(mixedStatsItems(mixed)) { m ->
             (cerpenList.adapter as? CerbungAdapter)?.updateSocialStats(m)
         }
-        genreScroll.visibility = if (selectedType == "Cergam") View.GONE else View.VISIBLE
     }
 
     private fun showContinueReading() {
@@ -851,6 +824,36 @@ class MainActivity : AppCompatActivity() {
             val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
             val scale = ThemeHelper.fontScale(this)
             bookmarkList.adapter = HistoryAdapter(marks, { c, s, e -> openReader(c.id, s, e.no) }, palette, scale)
+        }
+        // v1.1.33: konten yang disimpan lewat tombol bookmark di halaman
+        // detail (cerpen/komik/berita) — ketuk untuk buka halaman detail.
+        // Di-resolve dari data yang sudah dimuat; yang sudah tidak ada
+        // di katalog dilewati (bukan dikarang).
+        val saved = ProgressStore.getSeriesBookmarks(this).mapNotNull { b ->
+            when (b.kind) {
+                "cerpen" -> {
+                    val c = cerpenData.firstOrNull { it.id == b.id } ?: return@mapNotNull null
+                    Triple(c.judul, "Cerpen · ${c.totalEpisodes} episode · ${c.genre}") { openDetail(c) }
+                }
+                "komik" -> {
+                    val k = komikData.firstOrNull { it.id == b.id } ?: return@mapNotNull null
+                    Triple(k.judul, "Komik · ${k.totalEpisodes} episode · ${k.totalPanels} panel") { openKomikDetail(k) }
+                }
+                "berita" -> {
+                    val a = newsData.firstOrNull { SocialApi.newsRef(it) == b.id } ?: return@mapNotNull null
+                    val dateLabel = if (a.date.isNotEmpty()) " · ${ItemDates.format(a.date)}" else ""
+                    Triple(a.title, "Berita · ${a.source}$dateLabel") { openNewsDetail(a) }
+                }
+                else -> null
+            }
+        }
+        if (saved.isEmpty()) {
+            seriesBookmarkSection.visibility = View.GONE
+        } else {
+            seriesBookmarkSection.visibility = View.VISIBLE
+            val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
+            val scale = ThemeHelper.fontScale(this)
+            seriesBookmarkList.adapter = SeriesBookmarkAdapter(saved, palette, scale)
         }
     }
 
