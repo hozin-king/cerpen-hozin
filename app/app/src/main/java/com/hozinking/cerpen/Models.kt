@@ -484,6 +484,31 @@ object CoverCache {
     private val loader = Executors.newFixedThreadPool(3)
 
     /**
+     * v1.1.35 (aturan unduh user): HANYA yang tampil di layar yang
+     * diunduh — saat kartu/panel keluar layar, unduhannya dihentikan.
+     * Hitung pemakai per assetPath (satu gambar bisa tampil di dua
+     * view sekaligus, mis. "Lanjutkan Membaca" + daftar); unduhan
+     * baru diputus bila hitungan mencapai 0. acquire/release HANYA
+     * dipanggil dari main thread (onBindViewHolder / onViewRecycled /
+     * clear), jadi HashMap biasa cukup.
+     */
+    private val refCounts = HashMap<String, Int>()
+
+    private fun acquire(assetPath: String) {
+        refCounts[assetPath] = (refCounts[assetPath] ?: 0) + 1
+    }
+
+    private fun release(assetPath: String) {
+        val n = (refCounts[assetPath] ?: 0) - 1
+        if (n <= 0) {
+            refCounts.remove(assetPath)
+            DataManager.cancelCmsImageFetch(assetPath)
+        } else {
+            refCounts[assetPath] = n
+        }
+    }
+
+    /**
      * Muat gambar ke ImageView secara asinkron (v1.1.5, lazy render):
      * placeholder langsung tampil, dekripsi+dekode di thread latar.
      * Tag view = assetPath; bila holder sudah di-recycle untuk item
@@ -498,8 +523,13 @@ object CoverCache {
      * lama tanpa thumb), perilaku lama berlaku: placeholder sampai
      * full siap. Full yang terunduh disimpan .enc lokal oleh
      * DataManager.fetchCmsImageBytes, jadi tampil berikutnya lokal.
+     * v1.1.35: bila view sebelumnya memuat gambar lain, lepaskan
+     * hitungannya (bila tidak ada pemakai lagi, unduhannya diputus).
      */
     fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int) {
+        val old = view.tag as? String
+        if (old != null && old != assetPath) release(old)
+        if (old != assetPath) acquire(assetPath)
         stopAnimated(view)
         view.setImageResource(placeholderRes)
         view.tag = assetPath
@@ -554,11 +584,15 @@ object CoverCache {
         (view.drawable as? AnimatedImageDrawable)?.stop()
     }
 
-    /** Batalkan muatan tertunda untuk view yang di-recycle. */
+    /** Batalkan muatan tertunda untuk view yang di-recycle (v1.1.35:
+     *  bila tidak ada view lain yang menunggu gambar yang sama,
+     *  unduhannya diputus — hanya yang tampil di layar yang diunduh). */
     fun clear(view: ImageView, placeholderRes: Int) {
+        val old = view.tag as? String
         view.tag = null
         stopAnimated(view)
         view.setImageResource(placeholderRes)
+        if (old != null) release(old)
     }
 
     /**

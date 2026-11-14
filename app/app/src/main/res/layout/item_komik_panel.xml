@@ -21,7 +21,7 @@
         android:layout_marginTop="8dp"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
-        android:text="Panel belum terunduh — ketuk tombol unduh di atas."
+        android:text="Gambar panel belum tersedia."
         android:textColor="@color/muted"
         android:textSize="13sp"
         android:visibility="gone" />

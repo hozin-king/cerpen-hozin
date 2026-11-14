@@ -16,6 +16,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.GZIPOutputStream
 
 /**
@@ -57,7 +58,9 @@ data class SyncResult(
     val alreadyHad: Int,
     val failed: Int,
     /** v1.1.32: true bila server mengunci versi ini (HTTP 426 version_locked). */
-    val versionLocked: Boolean = false
+    val versionLocked: Boolean = false,
+    /** v1.1.35: true bila sync gagal karena tidak ada internet (bukan karena sudah terbaru). */
+    val offline: Boolean = false
 )
 
 /** Progress sync: (selesai, total, label tahap). Total 0 = belum diketahui. */
@@ -467,12 +470,29 @@ object DataManager {
     }
 
     /**
+     * Koneksi unduh gambar CMS yang sedang berjalan, per assetPath.
+     * v1.1.35 (aturan unduh user): HANYA yang tampil di layar yang
+     * diunduh — saat kartu/panel keluar layar, [cancelCmsImageFetch]
+     * memutus koneksinya supaya unduhan berhenti, bukan jalan terus
+     * di latar. Dipakai CoverCache (refcount per assetPath).
+     */
+    private val cmsFetchConns = ConcurrentHashMap<String, HttpURLConnection>()
+
+    /** Putuskan unduh gambar CMS untuk [assetPath] bila masih berjalan. */
+    fun cancelCmsImageFetch(assetPath: String) {
+        cmsFetchConns.remove(assetPath)?.disconnect()
+    }
+
+    /**
      * GET sekali; lempar IOException bila koneksi gagal (syarat
      * Hosts.withFallback), null bila server menjawab HTTP error
      * (404/429/dll). Tanpa ulangi — withFallback sudah memberi
      * percobaan kedua di host fallback.
+     * [trackKey] (v1.1.35): bila diisi, koneksi didaftarkan selama
+     * unduh supaya bisa diputus [cancelCmsImageFetch] saat item
+     * keluar layar.
      */
-    private fun fetchBytesOrThrow(url: String): ByteArray? {
+    private fun fetchBytesOrThrow(url: String, trackKey: String? = null): ByteArray? {
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -480,6 +500,7 @@ object DataManager {
                 readTimeout = 20000
                 setRequestProperty("User-Agent", "CerpenHozin/1.1")
             }
+            if (trackKey != null) cmsFetchConns[trackKey] = conn
             if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
             return conn.inputStream.readBytes()
         } catch (e: IOException) {
@@ -487,6 +508,7 @@ object DataManager {
         } catch (e: Exception) {
             throw IOException(e)
         } finally {
+            if (trackKey != null) cmsFetchConns.remove(trackKey, conn)
             conn?.disconnect()
         }
     }
@@ -585,7 +607,7 @@ object DataManager {
         // Identitas aplikasi untuk header X-App-Version / X-App-Signer-Sha.
         CerpenApi.setAppIdentity(BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(context))
         Thread {
-            val result = try {
+            val raw = try {
                 runD1Sync(context, onProgress)
                     ?: if (CerpenApi.versionLocked) SyncResult(false, 0, 0, 0, versionLocked = true)
                     else runSync(context, onProgress)
@@ -599,6 +621,12 @@ object DataManager {
                     SyncResult(false, 0, 0, 0)
                 }
             }
+            // v1.1.35: bedakan "sudah terbaru" dari "tidak ada internet"
+            // — bila tidak ada perubahan DAN perangkat sedang offline,
+            // tandai supaya pemanggil tidak menampilkan pesan ambigu.
+            val result =
+                if (!raw.changed && !raw.versionLocked && !isOnline(context)) raw.copy(offline = true)
+                else raw
             mainHandler.post { onDone(result) }
         }.start()
     }
@@ -815,7 +843,9 @@ object DataManager {
     fun fetchCmsImageBytes(context: Context, assetPath: String, thumb: Boolean): ByteArray? {
         val key = ContentGuard.getKey() ?: return null
         val enc = try {
-            Hosts.withFallback(cmsImageUrl(assetPath, thumb)) { fetchBytesOrThrow(it) }
+            // v1.1.35: daftarkan koneksi per assetPath supaya bisa
+            // diputus saat item keluar layar (aturan unduh user).
+            Hosts.withFallback(cmsImageUrl(assetPath, thumb)) { fetchBytesOrThrow(it, assetPath) }
         } catch (e: IOException) {
             return null
         } ?: return null

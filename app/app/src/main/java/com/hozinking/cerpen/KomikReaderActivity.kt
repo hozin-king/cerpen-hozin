@@ -344,8 +344,12 @@ class KomikReaderActivity : AppCompatActivity() {
                     R.drawable.cover_placeholder
                 )
             } else {
-                // Panel belum terunduh — placeholder + penanda singkat;
-                // teks dialog tetap tampil (selalu ada di JSON).
+                // v1.1.35: panel TANPA gambar di server (image_url kosong
+                // di D1 — gambar panel belum dibuat, bukan belum terunduh).
+                // Penanda jujur: "Gambar panel belum tersedia." — jangan
+                // lagi menunjuk tombol unduh yang tidak ada untuk panel
+                // ini (tombol "Unduh episode ini" hanya muncul bila ada
+                // panel yang gambarnya ADA tapi belum tersimpan lokal).
                 CoverCache.clear(h.image, R.drawable.cover_placeholder)
                 h.hint.visibility = View.VISIBLE
             }

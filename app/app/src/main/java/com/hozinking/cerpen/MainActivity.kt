@@ -32,6 +32,16 @@ import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        /**
+         * v1.1.35: pesan toast sync saat tidak ada perubahan — pisahkan
+         * "Sudah terbaru" (online, memang tidak ada yang baru) dari
+         * "Tidak ada internet" (offline). Fungsi murni, diuji unit.
+         */
+        fun syncUnchangedToast(result: SyncResult): String =
+            if (result.offline) "Tidak ada internet" else "Sudah terbaru"
+    }
+
     private lateinit var root: View
     private lateinit var appTitle: TextView
     private lateinit var appSubtitle: TextView
@@ -1309,7 +1319,9 @@ class MainActivity : AppCompatActivity() {
                 loadContent()
                 Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "Sudah terbaru / tidak ada internet", Toast.LENGTH_SHORT).show()
+                // v1.1.35: jangan lagi "Sudah terbaru / tidak ada
+                // internet" — dua keadaan itu pesannya dipisah.
+                Toast.makeText(this, syncUnchangedToast(result), Toast.LENGTH_SHORT).show()
             }
         }
     }
