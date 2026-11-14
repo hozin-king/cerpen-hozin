@@ -219,6 +219,63 @@ object ItemDates {
     fun isNew(addedAt: String, date: String = ""): Boolean =
         isNew(addedAt, date, System.currentTimeMillis())
 
+    /**
+     * Waktu relatif ala YouTube Indonesia (v1.1.32): "baru saja" /
+     * "5 menit lalu" / "2 jam lalu" / "3 hari lalu" / "2 minggu lalu" /
+     * "4 bulan lalu" / "1 tahun lalu" / "hari ini" (date-only hari ini).
+     * Null bila TIDAK ADA timestamp yang bisa diparse (pemanggil
+     * menghilangkan bagian waktunya — JANGAN dikarang) atau tanggalnya
+     * di masa depan. [addedAt] (ISO dengan offset) didahulukan; bila
+     * kosong, fallback ke [date] ("yyyy-MM-dd", presisi hari).
+     */
+    fun relativeTime(addedAt: String, date: String): String? =
+        relativeTime(addedAt, date, System.currentTimeMillis())
+
+    /** Overload dengan jam eksplisit (untuk unit test). */
+    fun relativeTime(addedAt: String, date: String, nowMillis: Long): String? {
+        if (addedAt.isNotBlank()) {
+            val added = try {
+                java.time.OffsetDateTime.parse(addedAt).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                return relativeTimeFromDate(date, nowMillis)
+            }
+            val age = nowMillis - added
+            if (age < -60_000L) return null
+            if (age < 60_000L) return "baru saja"
+            val minutes = age / 60_000L
+            if (minutes < 60) return "$minutes menit lalu"
+            val hours = minutes / 60
+            if (hours < 24) return "$hours jam lalu"
+            val days = hours / 24
+            if (days < 7) return "$days hari lalu"
+            val weeks = days / 7
+            if (weeks < 5) return "$weeks minggu lalu"
+            val months = days / 30
+            if (months < 12) return "$months bulan lalu"
+            return "${days / 365} tahun lalu"
+        }
+        return relativeTimeFromDate(date, nowMillis)
+    }
+
+    /** Waktu relatif dari [date] ("yyyy-MM-dd") saja — presisi hari. */
+    private fun relativeTimeFromDate(date: String, nowMillis: Long): String? {
+        if (date.isBlank()) return null
+        return try {
+            val zone = java.time.ZoneId.systemDefault()
+            val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+            val d = java.time.LocalDate.parse(date.trim())
+            val days = java.time.temporal.ChronoUnit.DAYS.between(d, today)
+            if (days < 0) null
+            else if (days == 0L) "hari ini"
+            else if (days < 7) "$days hari lalu"
+            else if (days < 35) "${days / 7} minggu lalu"
+            else if (days < 365) "${days / 30} bulan lalu"
+            else "${days / 365} tahun lalu"
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Overload dengan jam eksplisit (untuk unit test). */
     fun isNew(addedAt: String, date: String, nowMillis: Long): Boolean {
         if (addedAt.isNotBlank()) {

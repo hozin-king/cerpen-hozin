@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.Menu
+import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -138,6 +140,8 @@ class KomikReaderActivity : AppCompatActivity() {
             tickHandler.removeCallbacks(tickRunnable)
             tickHandler.postDelayed(tickRunnable, 1000)
         }
+        // v1.1.32: lanjutkan refresh live angka sosial.
+        socialBar?.startLiveUpdates()
     }
 
     override fun onPause() {
@@ -147,6 +151,25 @@ class KomikReaderActivity : AppCompatActivity() {
         tickHandler.removeCallbacks(tickRunnable)
         tracker.noteVisible(false)
         flushReading(force = true)
+        // v1.1.32: hentikan refresh live angka sosial.
+        socialBar?.stopLiveUpdates()
+    }
+
+    // v1.1.32: menu overflow toolbar — "Laporkan konten" (pindahan tombol
+    // Laporkan dari bar bawah; reader komik tidak punya tombol gear).
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add("Laporkan konten")
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.title == "Laporkan konten") {
+            val bar = socialBar
+            if (bar != null) bar.showReportDialog()
+            else Toast.makeText(this, "Konten belum dimuat", Toast.LENGTH_SHORT).show()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     /** v1.1.30: kirim detik baca tertunda ke server (best-effort). */
@@ -234,7 +257,10 @@ class KomikReaderActivity : AppCompatActivity() {
         // v1.1.31: baris sosial — POST view sekali saat reader dibuka
         // (bind kedua, mis. muat ulang setelah unduh, tidak menghitung lagi).
         if (socialBar == null) {
-            socialBar = SocialBar(this, "komik", SocialApi.komikRef(komik.id, episode.no))
+            socialBar = SocialBar(
+                this, "komik", SocialApi.komikRef(komik.id, episode.no),
+                date = komik.date
+            )
             socialBar?.bind()
         }
     }

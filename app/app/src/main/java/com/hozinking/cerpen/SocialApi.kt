@@ -69,6 +69,30 @@ object SocialApi {
         else -> n.toString()
     }
 
+    /**
+     * Baris sosial reader ala halaman video YouTube (v1.1.32, label
+     * "x dibaca" — ini aplikasi baca): "206 suka · 12 rb x dibaca ·
+     * 1 jam lalu". Bagian waktu hilang bila [timeAgo] null (konten
+     * tanpa timestamp — jangan dikarang).
+     */
+    fun readerLine(likes: Long, views: Long, timeAgo: String?): String {
+        val base = "${formatCount(likes)} suka · ${formatCount(views)} x dibaca"
+        return if (timeAgo.isNullOrBlank()) base else "$base · $timeAgo"
+    }
+
+    /**
+     * Baris sosial kartu daftar ala feed YouTube (v1.1.32): "Levelup iD ▷
+     * 16 rb dibaca · 10 jam lalu". [name] = nama sumber/channel (berita:
+     * `source`); cerpen/komik TIDAK punya author di model — [name] null
+     * -> "16 rb dibaca · 10 jam lalu" (tanpa slot nama yang dikarang).
+     * Bagian waktu hilang bila [timeAgo] null.
+     */
+    fun feedLine(name: String?, views: Long, timeAgo: String?): String {
+        val base = if (name.isNullOrBlank()) "${formatCount(views)} dibaca"
+        else "$name ▷ ${formatCount(views)} dibaca"
+        return if (timeAgo.isNullOrBlank()) base else "$base · $timeAgo"
+    }
+
     private fun trim1(v: Double): String {
         val s = String.format(java.util.Locale.US, "%.1f", v)
         return (if (s.endsWith(".0")) s.dropLast(2) else s).replace('.', ',')

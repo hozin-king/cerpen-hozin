@@ -114,6 +114,18 @@ class MainActivity : AppCompatActivity() {
     /** true hanya antara onResume dan onPause — penjaga cek berkala. */
     @Volatile
     private var manifestCheckActive = false
+    /** v1.1.32: polling ringan stats sosial (view/like) — 60 dtk, hanya tab aktif. */
+    private val socialPollHandler = Handler(Looper.getMainLooper())
+    private val socialPollRunnable = Runnable { refreshVisibleListSocialStats() }
+    /** true hanya antara onResume dan onPause — penjaga polling stats. */
+    @Volatile
+    private var socialPollActive = false
+    /** Daftar terfilter terakhir (dipakai polling stats tanpa membuat ulang adapter). */
+    private var lastNewsFiltered: List<NewsArticle> = emptyList()
+    private var lastKomikFiltered: List<Komik> = emptyList()
+    private var lastMixedFiltered: List<CerbungItem> = emptyList()
+    /** v1.1.32: server mengunci versi ini (HTTP 426) — sync diblokir sampai update. */
+    private var serverVersionLocked = false
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
     private var newestCerpenId: String? = null
     private var newestKomikId: String? = null
@@ -331,6 +343,8 @@ class MainActivity : AppCompatActivity() {
         restorePendingExitDialog()
         autoSyncContent()
         startManifestCheck()
+        startSocialPoll()
+        if (serverVersionLocked) showVersionLockedDialog()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
         }
@@ -355,6 +369,8 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         // v1.1.28: hentikan cek berkala saat aplikasi tidak di foreground.
         stopManifestCheck()
+        // v1.1.32: hentikan polling stats sosial juga.
+        stopSocialPoll()
     }
 
     /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
@@ -613,19 +629,41 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** Item stats-batch untuk satu daftar berita (dipakai apply + polling). */
+    private fun newsStatsItems(list: List<NewsArticle>): List<Pair<String, String>> =
+        list.map { "berita" to SocialApi.newsRef(it) }
+
+    /** Item stats-batch untuk satu daftar komik (per episode, lalu dijumlahkan). */
+    private fun komikStatsItems(list: List<Komik>): List<Pair<String, String>> =
+        list.flatMap { k -> k.episodes.map { e -> "komik" to SocialApi.komikRef(k.id, e.no) } }
+
+    /** Item stats-batch untuk daftar campur (dipakai apply + polling). */
+    private fun mixedStatsItems(mixed: List<CerbungItem>): List<Pair<String, String>> =
+        mixed.flatMap {
+            when (it) {
+                is CerbungItem.CerpenItem -> it.cerpen.seasons.flatMap { s ->
+                    s.episodes.map { e -> "cerpen" to SocialApi.cerpenRef(it.cerpen.id, s.season, e.no) }
+                }
+                is CerbungItem.CergamItem -> it.komik.episodes.map { e ->
+                    "komik" to SocialApi.komikRef(it.komik.id, e.no)
+                }
+            }
+        }
+
     /** Daftar berita (difilter query cari bila ada) — v1.1.11. */
     private fun applyNewsList() {
         val q = newsQuery.lowercase()
         val filtered = if (q.isEmpty()) newsData else newsData.filter { a ->
             a.title.lowercase().contains(q) || a.source.lowercase().contains(q)
         }
+        lastNewsFiltered = filtered
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
         newsList.adapter = NewsAdapter(
             filtered, { openNewsDetail(it) }, palette, scale,
             onDownload = { a, pos -> downloadNews(a, pos) }
         )
-        loadListSocialStats(filtered.map { "berita" to SocialApi.newsRef(it) }) { m ->
+        loadListSocialStats(newsStatsItems(filtered)) { m ->
             (newsList.adapter as? NewsAdapter)?.updateSocialStats(m)
         }
     }
@@ -635,6 +673,7 @@ class MainActivity : AppCompatActivity() {
         val filtered = if (q.isEmpty()) komikData else komikData.filter { k ->
             k.judul.lowercase().contains(q) || k.genre.lowercase().contains(q)
         }
+        lastKomikFiltered = filtered
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
         komikList.adapter = KomikAdapter(
@@ -642,9 +681,7 @@ class MainActivity : AppCompatActivity() {
             onDownload = { k, pos -> downloadKomik(k, pos) },
             newestId = newestKomikId
         )
-        loadSeriesSocialStats(filtered.flatMap { k ->
-            k.episodes.map { e -> "komik" to SocialApi.komikRef(k.id, e.no) }
-        }) { m ->
+        loadSeriesSocialStats(komikStatsItems(filtered)) { m ->
             (komikList.adapter as? KomikAdapter)?.updateSocialStats(m)
         }
     }
@@ -750,6 +787,7 @@ class MainActivity : AppCompatActivity() {
             compareByDescending<CerbungItem> { it.date }
                 .thenByDescending { ItemDates.trailingNumber(it.id) }
         )
+        lastMixedFiltered = mixed
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         val scale = ThemeHelper.fontScale(this)
         cerpenList.adapter = CerbungAdapter(
@@ -759,16 +797,7 @@ class MainActivity : AppCompatActivity() {
             newestCerpenId = newestCerpenId,
             newestKomikId = newestKomikId
         )
-        loadSeriesSocialStats(mixed.flatMap {
-            when (it) {
-                is CerbungItem.CerpenItem -> it.cerpen.seasons.flatMap { s ->
-                    s.episodes.map { e -> "cerpen" to SocialApi.cerpenRef(it.cerpen.id, s.season, e.no) }
-                }
-                is CerbungItem.CergamItem -> it.komik.episodes.map { e ->
-                    "komik" to SocialApi.komikRef(it.komik.id, e.no)
-                }
-            }
-        }) { m ->
+        loadSeriesSocialStats(mixedStatsItems(mixed)) { m ->
             (cerpenList.adapter as? CerbungAdapter)?.updateSocialStats(m)
         }
         genreScroll.visibility = if (selectedType == "Cergam") View.GONE else View.VISIBLE
@@ -871,6 +900,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.drawer_news -> showTab(1)
                 R.id.drawer_leaderboard -> startActivity(Intent(this, LeaderboardActivity::class.java))
                 R.id.drawer_history -> startActivity(Intent(this, HistoryActivity::class.java))
+                R.id.drawer_purchased -> startActivity(Intent(this, PurchasedActivity::class.java))
                 R.id.drawer_settings -> startActivity(Intent(this, SettingsActivity::class.java))
                 R.id.drawer_check_update -> checkForAppUpdateManual()
                 R.id.drawer_about -> showAboutDialog()
@@ -1098,18 +1128,24 @@ class MainActivity : AppCompatActivity() {
 
     // ============ AUTO-UPDATE KONTEN (v1.1.6) ============
     // Tiap buka aplikasi / kembali ke aplikasi: cek manifest GitHub dan
-    // unduh konten baru (cerpen/berita/komik) secara otomatis, tanpa
-    // aksi pengguna. Throttle maks 1x per 5 menit (v1.1.28: dulu 30
-    // menit — aplikasi yang dibuka lagi dalam 30 menit tidak pernah
-    // tahu ada konten baru). Fail-open: tanpa internet atau gagal =
-    // diam, konten lama tetap bisa dibaca. Toast HANYA bila ada konten
-    // baru — bila sudah terbaru, diam.
+    // perbarui katalog konten baru (cerpen/berita/komik) secara otomatis,
+    // tanpa aksi pengguna. v1.1.32: gambar TIDAK ikut diunduh saat sync
+    // (on-demand saat konten dibuka). Throttle maks 1x per 5 menit
+    // (v1.1.28: dulu 30 menit — aplikasi yang dibuka lagi dalam 30 menit
+    // tidak pernah tahu ada konten baru). Fail-open: tanpa internet atau
+    // gagal = diam, konten lama tetap bisa dibaca. Toast HANYA bila ada
+    // konten baru — bila sudah terbaru, diam.
     /** Jeda cek berkala manifest saat aplikasi di foreground (v1.1.28). */
     private val manifestCheckIntervalMs = 5 * 60 * 1000L
 
     private fun autoSyncContent(force: Boolean = false) {
         // Jangan tumpuk dengan sync manual yang sedang berjalan.
         if (syncBusy) return
+        // v1.1.32: versi dikunci server — sync diblokir sampai update.
+        if (serverVersionLocked) {
+            showVersionLockedDialog()
+            return
+        }
         val now = System.currentTimeMillis()
         val last = updatePrefs.getLong("last_auto_sync_ms", 0)
         if (!force && now - last < 5 * 60 * 1000L) return
@@ -1117,12 +1153,15 @@ class MainActivity : AppCompatActivity() {
         setSyncBusy(true)
         DataManager.syncContent(this, onProgress = { done, total, label ->
             showSyncProgress(done, total, label)
-        }) { changed ->
+        }) { result ->
             setSyncBusy(false)
             hideSyncProgress()
-            if (changed) {
+            if (result.versionLocked) {
+                serverVersionLocked = true
+                showVersionLockedDialog()
+            } else if (result.changed) {
                 loadContent()
-                Toast.makeText(this, "Konten baru diunduh", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -1147,6 +1186,53 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ============ POLLING STATS SOSIAL (v1.1.32) ============
+    // Angka view/like daftar disegarkan live selama layar aktif (60 dtk,
+    // HANYA tab yang sedang tampil — hemat kuota/baterai). Adapter TIDAK
+    // dibuat ulang; angka yang berubah dianimasikan rolling (naik/turun),
+    // yang sama DIAM. Berhenti di onPause (stopSocialPoll).
+
+    /** Mulai polling stats (dipanggil di onResume). */
+    private fun startSocialPoll() {
+        socialPollActive = true
+        scheduleSocialPoll()
+    }
+
+    /** Hentikan polling stats (dipanggil di onPause). */
+    private fun stopSocialPoll() {
+        socialPollActive = false
+        socialPollHandler.removeCallbacks(socialPollRunnable)
+    }
+
+    /** Jadwalkan polling berikutnya (hanya bila masih resumed). */
+    private fun scheduleSocialPoll() {
+        socialPollHandler.removeCallbacks(socialPollRunnable)
+        if (socialPollActive) {
+            socialPollHandler.postDelayed(socialPollRunnable, 60_000L)
+        }
+    }
+
+    /** Segarkan stats-batch tab aktif dari daftar terfilter terakhir. */
+    private fun refreshVisibleListSocialStats() {
+        if (!socialPollActive || isFinishing || isDestroyed) {
+            scheduleSocialPoll()
+            return
+        }
+        when (selectedTab) {
+            0 -> loadSeriesSocialStats(mixedStatsItems(lastMixedFiltered)) { m ->
+                (cerpenList.adapter as? CerbungAdapter)?.updateSocialStats(m)
+            }
+            1 -> loadListSocialStats(newsStatsItems(lastNewsFiltered)) { m ->
+                (newsList.adapter as? NewsAdapter)?.updateSocialStats(m)
+            }
+            2 -> loadSeriesSocialStats(komikStatsItems(lastKomikFiltered)) { m ->
+                (komikList.adapter as? KomikAdapter)?.updateSocialStats(m)
+            }
+            // Tab Koleksi (3) tidak punya stats-batch — dilewati.
+        }
+        scheduleSocialPoll()
+    }
+
     /**
      * Cek berkala manifest D1 saat aplikasi terbuka (v1.1.28): hanya
      * fetchManifest yang murah; bila versinya naik dari versi tersimpan
@@ -1165,6 +1251,15 @@ class MainActivity : AppCompatActivity() {
             try {
                 val key = ContentGuard.getKey()
                 val manifest = key?.let { CerpenApi.fetchManifest(it) }
+                // v1.1.32: server mengunci versi ini — tampilkan force-update.
+                if (CerpenApi.versionLocked) {
+                    runOnUiThread {
+                        if (!isFinishing && !isDestroyed) {
+                            serverVersionLocked = true
+                            showVersionLockedDialog()
+                        }
+                    }
+                }
                 if (manifest != null && manifest.version > 0 &&
                     manifest.version > DataManager.storedD1Version(this@MainActivity)
                 ) {
@@ -1189,15 +1284,23 @@ class MainActivity : AppCompatActivity() {
         fetchRemoteConfig()
         // Cegah sync ganda (auto + tarik bersamaan).
         if (syncBusy) return
+        // v1.1.32: versi dikunci server — sync diblokir sampai update.
+        if (serverVersionLocked) {
+            showVersionLockedDialog()
+            return
+        }
         setSyncBusy(true)
         swipeRefresh.isRefreshing = true
         DataManager.syncContent(this, onProgress = { done, total, label ->
             showSyncProgress(done, total, label)
-        }) { changed ->
+        }) { result ->
             setSyncBusy(false)
             swipeRefresh.isRefreshing = false
             hideSyncProgress()
-            if (changed) {
+            if (result.versionLocked) {
+                serverVersionLocked = true
+                showVersionLockedDialog()
+            } else if (result.changed) {
                 loadContent()
                 Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             } else {
@@ -1228,9 +1331,21 @@ class MainActivity : AppCompatActivity() {
             // hozinking.my.id gagal koneksi). Daftar tag tidak lagi
             // diambil — decide(tags kosong) = Soft, sesuai logika lama.
             val latestJson = try {
-                Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) { UpdateCheck.fetchText(it) }
+                Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) {
+                    UpdateCheck.fetchText(
+                        it, BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(this)
+                    )
+                }
             } catch (e: IOException) {
                 null
+            }
+            // v1.1.32: server mengunci versi ini (HTTP 426) — paksa update.
+            if (UpdateCheck.versionLocked) {
+                runOnUiThread {
+                    serverVersionLocked = true
+                    showVersionLockedDialog()
+                }
+                return@Thread
             }
             if (latestJson == null) {
                 runOnUiThread {
@@ -1298,9 +1413,21 @@ class MainActivity : AppCompatActivity() {
         updatePrefs.edit().putLong("last_check_ms", now).apply()
         Thread {
             val latestJson = try {
-                Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) { UpdateCheck.fetchText(it) }
+                Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) {
+                    UpdateCheck.fetchText(
+                        it, BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(this)
+                    )
+                }
             } catch (e: IOException) {
                 null
+            }
+            // v1.1.32: server mengunci versi ini (HTTP 426) — paksa update.
+            if (UpdateCheck.versionLocked) {
+                runOnUiThread {
+                    serverVersionLocked = true
+                    showVersionLockedDialog()
+                }
+                return@Thread
             }
             val latest = latestJson?.let { UpdateCheck.parseLatestRelease(it) }
             val decision = when {
@@ -1433,6 +1560,32 @@ class MainActivity : AppCompatActivity() {
             else UpdateCheck.Decision.Soft(release)
         )
         return true
+    }
+
+    /**
+     * v1.1.32: server mengunci versi ini (HTTP 426 version_locked) —
+     * dialog paksa yang tidak bisa ditutup/dilewati (GlassDialog selalu
+     * non-cancelable); sync diblokir sampai update. Tombol membuka
+     * halaman rilis — tanpa apkUrl yang pasti dari respons 426, unduh
+     * dalam aplikasi tidak bisa dijamin, jadi pakai fallback browser.
+     */
+    private fun showVersionLockedDialog() {
+        if (updateDialog?.isShowing == true) return
+        // Dialog update lebih penting — tutup dialog keluar bila tampil.
+        exitDialog?.dismiss()
+        val dialog = GlassDialog.create(
+            context = this,
+            title = "Update wajib",
+            message = "Server mengunci versi Cerpen Hozin v${BuildConfig.VERSION_NAME} ini. " +
+                "Perbarui ke versi terbaru untuk melanjutkan.",
+            negative = null,
+            positive = GlassDialog.Button("Update Sekarang", accent = true) {
+                AppUpdate.openInBrowser(this, UpdateCheck.RELEASES_PAGE_URL)
+            }
+        )
+        dialog.setOnDismissListener { updateDialog = null }
+        updateDialog = dialog
+        dialog.show()
     }
 
     /** Tampilkan dialog update kaca iOS (biasa, paksa, atau signer mismatch). */

@@ -98,6 +98,11 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <activity
+            android:name=".PurchasedActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
         <!-- v1.1.5: bagikan APK update yang terunduh ke installer sistem. -->
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -4,6 +4,8 @@ import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.text.method.LinkMovementMethod
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import android.widget.Button
 import android.widget.ImageView
@@ -99,7 +101,10 @@ class NewsDetailActivity : AppCompatActivity() {
         lastTheme = ProgressStore.getTheme(this)
         // v1.1.31: baris sosial — POST view sekali saat artikel dibuka.
         article?.let { a ->
-            socialBar = SocialBar(this, "berita", SocialApi.newsRef(a))
+            socialBar = SocialBar(
+                this, "berita", SocialApi.newsRef(a),
+                addedAt = a.addedAt, date = a.date
+            )
             socialBar?.bind()
         }
         // Teks dulu (placeholder untuk gambar), gambar menyusul asinkron.
@@ -126,6 +131,8 @@ class NewsDetailActivity : AppCompatActivity() {
         // (Bila buildBody baru jalan di atas, animator sudah ada — lewati.)
         if (pulseAnimators.isEmpty()) restartPulse()
         refreshDownloadButton()
+        // v1.1.32: lanjutkan refresh live angka sosial.
+        socialBar?.startLiveUpdates()
     }
 
     override fun onPause() {
@@ -133,6 +140,25 @@ class NewsDetailActivity : AppCompatActivity() {
         // v1.1.18: matikan denyut saat layar tidak terlihat (hemat baterai).
         for (anim in pulseAnimators) PulseText.stop(anim)
         pulseAnimators.clear()
+        // v1.1.32: hentikan refresh live angka sosial.
+        socialBar?.stopLiveUpdates()
+    }
+
+    // v1.1.32: menu overflow toolbar — "Laporkan konten" (pindahan tombol
+    // Laporkan dari bar bawah; detail berita tidak punya tombol gear).
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menu.add("Laporkan konten")
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.title == "Laporkan konten") {
+            val bar = socialBar
+            if (bar != null) bar.showReportDialog()
+            else Toast.makeText(this, "Konten belum dimuat", Toast.LENGTH_SHORT).show()
+            return true
+        }
+        return super.onOptionsItemSelected(item)
     }
 
     // v1.1.18: nyalakan denyut di semua blok teks yang sedang tampil.

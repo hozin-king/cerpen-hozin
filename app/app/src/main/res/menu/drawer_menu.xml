@@ -34,6 +34,9 @@
         <item
             android:id="@+id/drawer_history"
             android:title="Riwayat" />
+        <item
+            android:id="@+id/drawer_purchased"
+            android:title="Konten Dibeli" />
     </group>
 
     <group android:id="@+id/drawer_group_app">

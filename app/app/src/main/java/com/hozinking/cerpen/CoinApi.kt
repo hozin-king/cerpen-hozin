@@ -192,6 +192,16 @@ object CoinApi {
         return if (e.isNotEmpty() && e != "banned") e else fallback
     }
 
+    /**
+     * v1.1.32: true bila respons purchase berarti "sudah dibeli" — server
+     * mengembalikan {ok:true, already:true} tanpa potong koin; backend
+     * v87.4 menambahkan already_owned:true di samping already:true.
+     * Terima KEDUA field (jangan bergantung pada yang belum tentu live).
+     */
+    fun isAlreadyOwned(json: JSONObject?): Boolean =
+        json?.optBoolean("already", false) == true ||
+            json?.optBoolean("already_owned", false) == true
+
     // ---------- jaringan ----------
 
     private fun doRequest(

@@ -100,6 +100,14 @@ object CoinUi {
                         if (r.status in 200..299) {
                             r.json?.optInt("balance")?.let { CoinStore.setBalance(activity, it) }
                             CoinStore.addUnlock(activity, CoinGate.unlockKey(kind, targetId, season, no))
+                            // v1.1.32: anti beli dobel — server bilang
+                            // sudah punya: koin TIDAK dipotong lagi.
+                            if (CoinApi.isAlreadyOwned(r.json)) {
+                                Toast.makeText(
+                                    activity, "Sudah dibeli — koin tidak dipotong",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         }
                         onAllowed()
                     }
@@ -157,7 +165,14 @@ object CoinUi {
                             r.status in 200..299 -> {
                                 r.json?.optInt("balance")?.let { CoinStore.setBalance(activity, it) }
                                 CoinStore.addUnlock(activity, CoinGate.unlockKey(kind, targetId, season, no))
-                                Toast.makeText(activity, "Terbuka!", Toast.LENGTH_SHORT).show()
+                                // v1.1.32: anti beli dobel — server bilang
+                                // sudah punya: koin TIDAK dipotong lagi.
+                                Toast.makeText(
+                                    activity,
+                                    if (CoinApi.isAlreadyOwned(r.json)) "Sudah dibeli — koin tidak dipotong"
+                                    else "Terbuka!",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                                 onBought()
                             }
                             else -> Toast.makeText(

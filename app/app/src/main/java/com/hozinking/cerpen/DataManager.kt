@@ -55,7 +55,9 @@ data class SyncResult(
     val changed: Boolean,
     val downloaded: Int,
     val alreadyHad: Int,
-    val failed: Int
+    val failed: Int,
+    /** v1.1.32: true bila server mengunci versi ini (HTTP 426 version_locked). */
+    val versionLocked: Boolean = false
 )
 
 /** Progress sync: (selesai, total, label tahap). Total 0 = belum diketahui. */
@@ -571,39 +573,51 @@ object DataManager {
      * Sync konten — D1 dulu, GitHub bila D1 gagal (v1.1.19).
      * Tanda tangan sama dengan syncFromGithub supaya pemanggil tidak
      * berubah; syncFromGithub tetap ada sebagai jalur GitHub murni.
+     * v1.1.32: bila server mengunci versi (HTTP 426 version_locked),
+     * JANGAN fallback ke GitHub — kembalikan SyncResult(versionLocked)
+     * supaya pemanggil menampilkan dialog force-update.
      */
     fun syncContent(
         context: Context,
         onProgress: SyncProgress? = null,
-        onDone: (Boolean) -> Unit
+        onDone: (SyncResult) -> Unit
     ) {
+        // Identitas aplikasi untuk header X-App-Version / X-App-Signer-Sha.
+        CerpenApi.setAppIdentity(BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(context))
         Thread {
             val result = try {
-                runD1Sync(context, onProgress) ?: runSync(context, onProgress)
+                runD1Sync(context, onProgress)
+                    ?: if (CerpenApi.versionLocked) SyncResult(false, 0, 0, 0, versionLocked = true)
+                    else runSync(context, onProgress)
             } catch (e: Exception) {
                 e.printStackTrace()
                 try {
-                    runSync(context, onProgress)
+                    if (CerpenApi.versionLocked) SyncResult(false, 0, 0, 0, versionLocked = true)
+                    else runSync(context, onProgress)
                 } catch (e2: Exception) {
                     e2.printStackTrace()
                     SyncResult(false, 0, 0, 0)
                 }
             }
-            mainHandler.post { onDone(result.changed) }
+            mainHandler.post { onDone(result) }
         }.start()
     }
 
     /**
      * Inti sync D1: manifest -> dump `all` -> rakit ulang 3 JSON .enc +
-     * manifest lokal -> unduh gambar yang belum ada. Null bila ADA
-     * SATU SAJA kegagalan (offline / kunci / versi / jumlah baris /
-     * dekripsi / tulis disk) — pemanggil memakai jalur GitHub lama.
+     * manifest lokal. v1.1.32: gambar TIDAK lagi diunduh di sini — sync
+     * hanya memperbarui katalog/metadata; gambar diunduh on-demand saat
+     * konten dibuka (downloadCerpen/downloadKomik/downloadNewsItem).
+     * Dulu komit katalog tertahan di belakang unduhan massal 460 gambar
+     * ("Mengunduh gambar (2/460)") sampai katalog baru tak pernah tayang.
+     * Null bila ADA SATU SAJA kegagalan (offline / kunci / versi /
+     * jumlah baris / dekripsi / tulis disk) — pemanggil memakai jalur
+     * GitHub lama.
      *
-     * Urutan komit: tulis .enc baru ke file .tmp -> unduh gambar ->
-     * pindah .tmp ke tempatnya (semua berhasil dulu) -> tulis manifest
-     * -> simpan versi. Versi BARU disimpan setelah manifest tertulis,
-     * jadi sync yang mati di tengah jalan akan mengulang rebuild
-     * berikutnya (bukan melewatinya).
+     * Urutan komit: tulis .enc baru ke file .tmp -> pindah .tmp ke
+     * tempatnya (semua berhasil dulu) -> tulis manifest -> simpan versi.
+     * Versi BARU disimpan setelah manifest tertulis, jadi sync yang mati
+     * di tengah jalan akan mengulang rebuild berikutnya (bukan melewatinya).
      */
     private fun runD1Sync(context: Context, onProgress: SyncProgress?): SyncResult? {
         fun report(done: Int, total: Int, label: String) {
@@ -707,61 +721,15 @@ object DataManager {
                 put("file", file)
             })
         }
-        // Gambar yang belum ada: cover/panel dari URL .enc repo (verifikasi
-        // GCM saja — tanpa SHA manifest), berita via on-demand seperti biasa.
+        // v1.1.32: gambar TIDAK diunduh saat sync (on-demand per konten).
+        // Hitung saja berapa gambar katalog yang sudah ada di perangkat
+        // (lokal, tanpa jaringan) untuk SyncResult.
         val imagePaths = ArrayList<String>()
         for ((jsonName, text) in newTexts) imagePaths += collectImagePaths(text, jsonName)
-        val onDemand = HashMap<String, String>()
-        try {
-            for (a in ContentLoader.parseNews(built.newsJson)) {
-                val paths = newsImagePaths(a)
-                if (paths.isNotEmpty() && a.imageUrls.isNotEmpty()) {
-                    onDemand[paths[0]] = a.imageUrls[0]
-                }
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         val distinct = imagePaths.distinct()
         val alreadyHad = distinct.count { isImageOffline(context, it) }
-        var downloaded = 0
-        var failed = 0
-        val missing = distinct.filter { !isImageOffline(context, it) }
-        for ((i, path) in missing.withIndex()) {
-            report(i, missing.size, "Mengunduh gambar")
-            var ok = false
-            val url = built.imageUrls[path]
-            if (url != null) {
-                ok = syncOneImageFromUrl(context, path, url, key)
-                if (ok) {
-                    // Entri manifest untuk gambar ini (SHA plaintext hasil dekripsi).
-                    try {
-                        val plain = ContentCrypto.decrypt(
-                            File(dataDir(context), "$path.enc").readBytes(), key
-                        )
-                        if (plain != null) {
-                            manifestJson.put(path, JSONObject().apply {
-                                put("sha256", ContentCrypto.sha256Hex(plain))
-                                put("file", "$path.enc")
-                            })
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
-            }
-            if (!ok) {
-                val od = onDemand[path]
-                if (od != null && downloadAndEncryptImage(context, path, od, key)) {
-                    downloaded++
-                } else {
-                    failed++
-                }
-            } else {
-                downloaded++
-            }
-        }
-        if (missing.isNotEmpty()) report(missing.size, missing.size, "Gambar selesai")
+        val downloaded = 0
+        val failed = 0
         // Komit: pindah semua .tmp dulu (gagal satu = batal, tanpa tulis
         // manifest — sync berikutnya mengulang dari keadaan lama yang konsisten).
         for ((file, tmp) in tmpFiles) {
@@ -818,40 +786,6 @@ object DataManager {
             }
         } catch (e: Exception) {
             null
-        }
-    }
-
-    /**
-     * Unduh satu gambar .enc dari URL langsung (bukan dari manifest):
-     * dipakai sync D1 — URL-nya dari cover_url / image_url D1.
-     * Verifikasi GCM saja (tanpa SHA manifest); true bila baru tersimpan.
-     * v1.1.29: lewat Hosts.withFallback (workers.dev bila host utama
-     * gagal koneksi); 404 tetap gagal, bukan fallback.
-     */
-    private fun syncOneImageFromUrl(
-        context: Context,
-        assetPath: String,
-        url: String,
-        key: ByteArray
-    ): Boolean {
-        val dest = File(dataDir(context), "$assetPath.enc")
-        if (dest.exists() && dest.length() > 0) return false
-        val enc = try {
-            Hosts.withFallback(url) { fetchBytesOrThrow(it) }
-        } catch (e: IOException) {
-            return false
-        } ?: return false
-        if (ContentCrypto.decrypt(enc, key) == null) {
-            Log.w(TAG, "sync $assetPath: verifikasi GCM gagal, file ditolak")
-            return false
-        }
-        return try {
-            dest.parentFile?.mkdirs()
-            dest.writeBytes(enc)
-            true
-        } catch (e: Exception) {
-            e.printStackTrace()
-            false
         }
     }
 
@@ -1163,7 +1097,10 @@ object DataManager {
         }
     }
 
-    /** Inti sync: manifest -> 3 JSON -> semua gambar yang belum ada. */
+    /**
+     * Inti sync: manifest -> 3 JSON (katalog/metadata). v1.1.32: gambar
+     * TIDAK diunduh di sini — on-demand per konten saat dibuka.
+     */
     private fun runSync(context: Context, onProgress: SyncProgress?): SyncResult {
         fun report(done: Int, total: Int, label: String) {
             onProgress?.let { cb -> mainHandler.post { cb(done, total, label) } }
@@ -1209,16 +1146,11 @@ object DataManager {
         val oldCerpen = loadCerpen(context).associateBy { it.id }
         val oldKomik = loadKomik(context).associateBy { it.id }
         val newTexts = HashMap<String, String>()
-        // v1.1.10: URL asli gambar pertama tiap berita — jalur unduh
-        // on-demand (pola downloadNewsItem) untuk gambar berita yang
-        // tidak punya entri manifest (hanya gambar pertama yang punya
-        // URL asli; gambar ke-2/3 hanya dari repo).
-        val onDemand = HashMap<String, String>()
         // v1.1.7: diisi diffAndMarkUpdates di akhir (dulu `= false` + true
         // di tiap fetch berhasil — itu yang bikin toast "Konten baru
         // diunduh" muncul walau kontennya sama).
         var changed: Boolean
-        var downloaded = 0
+        val downloaded = 0
         var failed = 0
         val imagePaths = ArrayList<String>()
         val jsonLabels = mapOf(
@@ -1235,53 +1167,16 @@ object DataManager {
             }
             newTexts[jsonName] = text
             imagePaths += collectImagePaths(text, jsonName)
-            if (jsonName == "news.json") {
-                try {
-                    for (a in ContentLoader.parseNews(text)) {
-                        val paths = newsImagePaths(a)
-                        if (paths.isNotEmpty() && a.imageUrls.isNotEmpty()) {
-                            onDemand[paths[0]] = a.imageUrls[0]
-                        }
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
         }
 
-        // 3. Semua gambar yang belum ada di perangkat — unduh satu per
-        //    satu dengan progres determinan (total sudah diketahui).
-        // v1.1.10: hanya jalur yang BISA diunduh yang masuk antrean
-        // (punya entri manifest ATAU URL on-demand). Jalur tanpa
-        // keduanya (kebanyakan gambar berita ke-2/3) dilewati diam-diam
-        // — bukan gagal — supaya refresh berikutnya tidak mengulang
-        // unduhan yang memang tidak pernah bisa selesai.
+        // 3. v1.1.32: gambar TIDAK diunduh saat sync (on-demand per
+        //    konten saat dibuka). Hitung saja berapa yang sudah ada.
         fun isOffline(path: String): Boolean {
             val dest = File(dataDir(context), "$path.enc")
             return dest.exists() && dest.length() > 0
         }
         val distinct = imagePaths.distinct()
         val alreadyHad = distinct.count { isOffline(it) }
-        val missing = distinct.filter { path ->
-            !isOffline(path) &&
-                (manifest.optJSONObject(path) != null || onDemand.containsKey(path))
-        }
-        for ((i, path) in missing.withIndex()) {
-            report(i, missing.size, "Mengunduh gambar")
-            if (syncOneImage(context, manifest, path, key)) {
-                downloaded++
-            } else {
-                val url = onDemand[path]
-                if (url != null && downloadAndEncryptImage(context, path, url, key)) {
-                    downloaded++
-                } else {
-                    failed++
-                }
-            }
-        }
-        if (missing.isNotEmpty()) {
-            report(missing.size, missing.size, "Gambar selesai")
-        }
         // v1.1.7: bandingkan lama vs baru; yang bertambah dicatat untuk
         // badge "diperbarui". changed hanya true bila ADA yang bertambah
         // (dulu true di tiap sync yang berhasil, walau kontennya sama).
@@ -1435,6 +1330,9 @@ object DataManager {
      * Unduh + verifikasi satu gambar terenkripsi; true bila ada data baru
      * yang valid. Disimpan sebagai .enc di internal storage (tidak pernah
      * plaintext). Bila .enc sudah ada, dilewati.
+     * v1.1.32: manifest rakitan D1 tidak lagi membawa entri SHA gambar
+     * (sync tidak mengunduh gambar) — tanpa entri, verifikasi GCM saja
+     * (tag mengautentikasi isi; pola syncOneImageFromUrl yang lama).
      */
     private fun syncOneImage(
         context: Context,
@@ -1444,11 +1342,14 @@ object DataManager {
     ): Boolean {
         val dest = File(dataDir(context), "$assetPath.enc")
         if (dest.exists() && dest.length() > 0) return false
-        val entry = manifest.optJSONObject(assetPath) ?: return false
-        val sha = entry.optString("sha256", "")
-        if (sha.isEmpty()) return false
+        val sha = manifest.optJSONObject(assetPath)?.optString("sha256", "") ?: ""
         val enc = fetchBytes("$GITHUB_RAW_BASE/$assetPath.enc") ?: return false
-        if (ContentCrypto.decryptVerifiedBytes(enc, key, sha) == null) {
+        val verified = if (sha.isEmpty()) {
+            ContentCrypto.decrypt(enc, key)
+        } else {
+            ContentCrypto.decryptVerifiedBytes(enc, key, sha)
+        }
+        if (verified == null) {
             Log.w(TAG, "sync $assetPath: verifikasi gagal, file ditolak")
             return false
         }

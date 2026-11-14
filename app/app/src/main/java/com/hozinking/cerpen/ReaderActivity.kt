@@ -8,6 +8,7 @@ import android.os.Looper
 import android.text.method.LinkMovementMethod
 import android.view.View
 import android.widget.Button
+import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
@@ -113,8 +114,28 @@ class ReaderActivity : AppCompatActivity() {
                 Toast.LENGTH_SHORT
             ).show()
         }
-        settingsButton.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
+        // v1.1.32: gear membuka menu — Pengaturan (perilaku lama) +
+        // Laporkan konten (pindahan tombol Laporkan dari bar bawah).
+        settingsButton.setOnClickListener { v ->
+            val menu = PopupMenu(this, v)
+            menu.menu.add("Pengaturan")
+            menu.menu.add("Laporkan konten")
+            menu.setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "Pengaturan" -> {
+                        startActivity(Intent(this, SettingsActivity::class.java))
+                        true
+                    }
+                    "Laporkan konten" -> {
+                        val bar = socialBar
+                        if (bar != null) bar.showReportDialog()
+                        else Toast.makeText(this, "Konten belum dimuat", Toast.LENGTH_SHORT).show()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            menu.show()
         }
 
         // Simpan progres saat scroll (+ sinyal aktivitas pelacak baca).
@@ -224,7 +245,10 @@ class ReaderActivity : AppCompatActivity() {
 
         // v1.1.31: baris sosial — POST view sekali saat reader dibuka.
         if (socialBar == null) {
-            socialBar = SocialBar(this, "cerpen", SocialApi.cerpenRef(c.id, seasonNo, episodeNo))
+            socialBar = SocialBar(
+                this, "cerpen", SocialApi.cerpenRef(c.id, seasonNo, episodeNo),
+                date = c.date
+            )
             socialBar?.bind()
         }
     }
@@ -244,6 +268,8 @@ class ReaderActivity : AppCompatActivity() {
             tickHandler.removeCallbacks(tickRunnable)
             tickHandler.postDelayed(tickRunnable, 1000)
         }
+        // v1.1.32: lanjutkan refresh live angka sosial.
+        socialBar?.startLiveUpdates()
     }
 
     /** v1.1.30: kirim detik baca tertunda ke server (best-effort). */
@@ -316,6 +342,8 @@ class ReaderActivity : AppCompatActivity() {
         tickHandler.removeCallbacks(tickRunnable)
         tracker.noteVisible(false)
         flushReading(force = true)
+        // v1.1.32: hentikan refresh live angka sosial.
+        socialBar?.stopLiveUpdates()
         // v1.1.18: matikan denyut saat layar tidak terlihat (hemat baterai).
         PulseText.stop(pulseAnimator)
         pulseAnimator = null

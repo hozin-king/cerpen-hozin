@@ -16,7 +16,13 @@ import androidx.appcompat.app.AppCompatActivity
 /**
  * Baris sosial di bawah/di atas konten reader (v1.1.31): total view,
  * tombol Like (ikon jempol SVG + angka) + Dislike (ikon jempol-bawah
- * SVG, TANPA angka — ala YouTube) + Laporkan.
+ * SVG, TANPA angka — ala YouTube).
+ *
+ * v1.1.32: tombol Laporkan PINDAH dari bar ini ke menu gear/overflow
+ * reader (showReportDialog kini public, dipanggil activity); baris ini
+ * menampilkan format ala halaman video YouTube — "206 suka · 12 rb
+ * x dibaca · 1 jam lalu" — dengan animasi rolling digit saat angka
+ * berubah + refresh live 30 dtk selama layar aktif (start/stopLiveUpdates).
  *
  * Perilaku: POST view SEKALI saat reader dibuka (bind kedua dari
  * activity yang sama — mis. muat ulang episode komik setelah unduh —
@@ -27,14 +33,23 @@ import androidx.appcompat.app.AppCompatActivity
 class SocialBar(
     private val activity: AppCompatActivity,
     private val kind: String,
-    private val ref: String
+    private val ref: String,
+    /** Waktu konten (untuk "x lalu"): addedAt ISO ber-offset dulu, lalu date "yyyy-MM-dd". */
+    private val addedAt: String = "",
+    private val date: String = ""
 ) {
     private var viewsText: TextView? = null
     private var likeButton: Button? = null
     private var dislikeButton: Button? = null
-    private var reportButton: Button? = null
     private var stats: SocialApi.Stats? = null
     private var viewPosted = false
+    /** Stats yang sedang tampil (pembanding arah animasi rolling). */
+    private var shownStats: SocialApi.Stats? = null
+    /** Polling live: handler + runnable + penjaga aktif (30 dtk, hanya saat resumed). */
+    private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pollRunnable = Runnable { pollStats() }
+    private var polling = false
+    private val pollIntervalMs = 30_000L
 
     /** Kategori lapor (value server + label Indonesia). */
     private val categories = listOf(
@@ -51,7 +66,6 @@ class SocialBar(
         viewsText = activity.findViewById(R.id.social_views)
         likeButton = activity.findViewById(R.id.social_like)
         dislikeButton = activity.findViewById(R.id.social_dislike)
-        reportButton = activity.findViewById(R.id.social_report)
         likeButton?.setOnClickListener { onVote(if (stats?.myVote == 1) 0 else 1) }
         dislikeButton?.setOnClickListener {
             if (!CoinStore.hasSession(activity)) {
@@ -61,7 +75,6 @@ class SocialBar(
             }
             onVote(if (stats?.myVote == -1) 0 else -1)
         }
-        reportButton?.setOnClickListener { showReportDialog() }
         Thread {
             val s = SocialApi.recordView(activity, kind, ref)
             activity.runOnUiThread { if (s != null) { stats = s; applyStats() } }
@@ -91,12 +104,30 @@ class SocialBar(
         }.start()
     }
 
-    /** Terapkan angka + tandai my_vote di tombol (tebal + penuh; lawan meredup). */
+    /**
+     * Terapkan angka + tandai my_vote di tombol (tebal + penuh; lawan meredup).
+     * v1.1.32: baris ringkas ala YouTube ("206 suka · 12 rb x dibaca ·
+     * 1 jam lalu"); angka yang berubah dianimasikan rolling — naik bila
+     * bertambah, turun bila berkurang; yang sama DIAM (tanpa animasi palsu).
+     * Arah baris: delta like dulu (vote yang berubah), bila like sama baru
+     * delta view. Label waktu ikut dihitung ulang tiap terapan.
+     */
     private fun applyStats() {
         val s = stats ?: return
-        viewsText?.text = SocialApi.formatCount(s.views)
+        val old = shownStats
+        val timeAgo = ItemDates.relativeTime(addedAt, date)
+        val line = SocialApi.readerLine(s.likes, s.views, timeAgo)
+        val lineDir = when {
+            old == null -> 0
+            s.likes != old.likes -> if (s.likes > old.likes) 1 else -1
+            s.views != old.views -> if (s.views > old.views) 1 else -1
+            else -> 0
+        }
+        viewsText?.let { RollingText.set(it, line, lineDir) }
         likeButton?.apply {
-            text = SocialApi.formatCount(s.likes)
+            val likeDir = if (old == null || s.likes == old.likes) 0
+            else if (s.likes > old.likes) 1 else -1
+            RollingText.set(this, SocialApi.formatCount(s.likes), likeDir)
             isSelected = s.myVote == 1
             typeface = if (s.myVote == 1) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             alpha = if (s.myVote == 1 || s.myVote == 0) 1f else 0.55f
@@ -105,10 +136,51 @@ class SocialBar(
             isSelected = s.myVote == -1
             alpha = if (s.myVote == -1) 1f else 0.55f
         }
+        shownStats = s
     }
 
-    /** Dialog lapor: 4 kategori + catatan opsional. Guest boleh lapor. */
-    private fun showReportDialog() {
+    /**
+     * Refresh live (v1.1.32): GET /stats tiap 30 dtk selama layar aktif.
+     * Angka yang berubah diterapkan via applyStats (rolling); yang sama
+     * DIAM. Dipanggil activity dari onResume; berhenti di onPause.
+     */
+    fun startLiveUpdates() {
+        if (polling) return
+        polling = true
+        pollHandler.postDelayed(pollRunnable, pollIntervalMs)
+    }
+
+    fun stopLiveUpdates() {
+        polling = false
+        pollHandler.removeCallbacks(pollRunnable)
+    }
+
+    private fun pollStats() {
+        if (!polling) return
+        Thread {
+            val s = SocialApi.fetchStats(activity, kind, ref)
+            activity.runOnUiThread {
+                if (s != null) {
+                    // Terapkan hanya bila ada yang berubah (stats atau
+                    // label waktu) — tanpa perubahan, angka DIAM.
+                    val timeAgo = ItemDates.relativeTime(addedAt, date)
+                    val newLine = SocialApi.readerLine(s.likes, s.views, timeAgo)
+                    if (s != stats || newLine != viewsText?.text.toString()) {
+                        stats = s
+                        applyStats()
+                    }
+                }
+                if (polling) pollHandler.postDelayed(pollRunnable, pollIntervalMs)
+            }
+        }.start()
+    }
+
+    /**
+     * Dialog lapor: 4 kategori + catatan opsional. Guest boleh lapor.
+     * v1.1.32: public — dipanggil menu gear/overflow reader (tombol
+     * Laporkan di bar bawah dihapus, dialognya TIDAK berubah).
+     */
+    fun showReportDialog() {
         val ctx = activity
         val d = ctx.resources.displayMetrics.density
         fun dp(v: Int) = (v * d).toInt()

@@ -28,8 +28,12 @@ class CerpenAdapter(
     private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<CerpenAdapter.VH>() {
 
+    /** v1.1.32: stats yang sedang tampil, per kunci — pembanding arah animasi rolling. */
+    private var shownStats: Map<String, SocialApi.Stats> = emptyMap()
+
     /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
     fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        shownStats = socialStats
         socialStats = m
         notifyDataSetChanged()
     }
@@ -40,7 +44,7 @@ class CerpenAdapter(
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
-        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        /** v1.1.32: baris sosial ala feed YouTube (gone bila tak ada stats). */
         val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         /** v1.1.7: badge "Baru" / "Season diperbarui" / "Episode diperbarui". */
@@ -68,11 +72,22 @@ class CerpenAdapter(
         h.desc.text = c.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
-        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        // v1.1.32: ala feed YouTube (tanpa 0 palsu — gone bila stats-batch
+        // belum/gagal). Angka yang berubah dianimasikan rolling (naik bila
+        // view bertambah, turun bila berkurang); yang sama DIAM. Cerpen
+        // tidak punya author di model — slot nama dihilangkan, bukan dikarang.
         val st = socialStats[SocialApi.key("cerpen", c.id)]
         h.socialText.visibility = if (st == null) View.GONE else View.VISIBLE
-        if (st != null) h.socialText.text =
-            "Dilihat ${SocialApi.formatCount(st.views)} · Suka ${SocialApi.formatCount(st.likes)}"
+        if (st != null) {
+            val old = shownStats[SocialApi.key("cerpen", c.id)]
+            val dir = if (old == null || st.views == old.views) 0
+            else if (st.views > old.views) 1 else -1
+            RollingText.set(
+                h.socialText,
+                SocialApi.feedLine(null, st.views, ItemDates.relativeTime("", c.date)),
+                dir
+            )
+        }
         // v1.1.5: cover dimuat asinkron (lazy) — decode tidak pernah di UI thread.
         if (c.cover.isNotEmpty()) {
             CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
@@ -111,6 +126,8 @@ class CerpenAdapter(
     }
 
     override fun onViewRecycled(h: VH) {
+        // v1.1.32: batalkan animasi rolling di holder yang di-recycle.
+        RollingText.cancel(h.socialText)
         CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         super.onViewRecycled(h)
     }
@@ -129,8 +146,12 @@ class NewsAdapter(
     private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<NewsAdapter.VH>() {
 
+    /** v1.1.32: stats yang sedang tampil, per kunci — pembanding arah animasi rolling. */
+    private var shownStats: Map<String, SocialApi.Stats> = emptyMap()
+
     /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
     fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        shownStats = socialStats
         socialStats = m
         notifyDataSetChanged()
     }
@@ -140,7 +161,7 @@ class NewsAdapter(
         val title: TextView = v.findViewById(R.id.title)
         val summary: TextView = v.findViewById(R.id.summary)
         val meta: TextView = v.findViewById(R.id.meta)
-        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        /** v1.1.32: baris sosial ala feed YouTube (gone bila tak ada stats). */
         val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         override val downloadButton: Button = v.findViewById(R.id.download_button)
@@ -166,11 +187,21 @@ class NewsAdapter(
         val dateLabel = if (a.date.isNotEmpty()) ItemDates.format(a.date) else ""
         h.meta.text = listOf(a.source, dateLabel).filter { it.isNotEmpty() }.joinToString(" · ")
         h.meta.setTextColor(palette.muted)
-        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        // v1.1.32: ala feed YouTube — "[sumber] ▷ [angka] dibaca · [waktu] lalu"
+        // (tanpa 0 palsu — gone bila stats-batch belum/gagal). Angka yang
+        // berubah dianimasikan rolling; yang sama DIAM.
         val st = socialStats[SocialApi.key("berita", SocialApi.newsRef(a))]
         h.socialText.visibility = if (st == null) View.GONE else View.VISIBLE
-        if (st != null) h.socialText.text =
-            "Dilihat ${SocialApi.formatCount(st.views)} · Suka ${SocialApi.formatCount(st.likes)}"
+        if (st != null) {
+            val old = shownStats[SocialApi.key("berita", SocialApi.newsRef(a))]
+            val dir = if (old == null || st.views == old.views) 0
+            else if (st.views > old.views) 1 else -1
+            RollingText.set(
+                h.socialText,
+                SocialApi.feedLine(a.source, st.views, ItemDates.relativeTime(a.addedAt, a.date)),
+                dir
+            )
+        }
         h.badgeNew.visibility = if (ItemDates.isNew(a.addedAt, a.date)) View.VISIBLE else View.GONE
         val firstImage = a.images.firstOrNull() ?: a.image
         // v1.1.29: thumbnail dimuat asinkron (progressive — thumb CMS
@@ -198,6 +229,8 @@ class NewsAdapter(
     }
 
     override fun onViewRecycled(h: VH) {
+        // v1.1.32: batalkan animasi rolling di holder yang di-recycle.
+        RollingText.cancel(h.socialText)
         CoverCache.clear(h.thumb, R.drawable.news_placeholder)
         super.onViewRecycled(h)
     }
@@ -339,8 +372,12 @@ class KomikAdapter(
     private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<KomikAdapter.VH>() {
 
+    /** v1.1.32: stats yang sedang tampil, per kunci — pembanding arah animasi rolling. */
+    private var shownStats: Map<String, SocialApi.Stats> = emptyMap()
+
     /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
     fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        shownStats = socialStats
         socialStats = m
         notifyDataSetChanged()
     }
@@ -351,7 +388,7 @@ class KomikAdapter(
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
-        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        /** v1.1.32: baris sosial ala feed YouTube (gone bila tak ada stats). */
         val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         /** v1.1.7: badge "Baru" / "Episode diperbarui". */
@@ -388,11 +425,22 @@ class KomikAdapter(
         h.desc.text = k.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
-        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        // v1.1.32: ala feed YouTube (tanpa 0 palsu — gone bila stats-batch
+        // belum/gagal). Angka yang berubah dianimasikan rolling (naik bila
+        // view bertambah, turun bila berkurang); yang sama DIAM. Komik
+        // tidak punya author di model — slot nama dihilangkan, bukan dikarang.
         val st = socialStats[SocialApi.key("komik", k.id)]
         h.socialText.visibility = if (st == null) View.GONE else View.VISIBLE
-        if (st != null) h.socialText.text =
-            "Dilihat ${SocialApi.formatCount(st.views)} · Suka ${SocialApi.formatCount(st.likes)}"
+        if (st != null) {
+            val old = shownStats[SocialApi.key("komik", k.id)]
+            val dir = if (old == null || st.views == old.views) 0
+            else if (st.views > old.views) 1 else -1
+            RollingText.set(
+                h.socialText,
+                SocialApi.feedLine(null, st.views, ItemDates.relativeTime("", k.date)),
+                dir
+            )
+        }
         if (k.cover.isNotEmpty()) {
             CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
@@ -424,6 +472,8 @@ class KomikAdapter(
     }
 
     override fun onViewRecycled(h: VH) {
+        // v1.1.32: batalkan animasi rolling di holder yang di-recycle.
+        RollingText.cancel(h.socialText)
         CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         super.onViewRecycled(h)
     }
@@ -462,8 +512,12 @@ class CerbungAdapter(
     private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<CerbungAdapter.VH>() {
 
+    /** v1.1.32: stats yang sedang tampil, per kunci — pembanding arah animasi rolling. */
+    private var shownStats: Map<String, SocialApi.Stats> = emptyMap()
+
     /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
     fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        shownStats = socialStats
         socialStats = m
         notifyDataSetChanged()
     }
@@ -474,7 +528,7 @@ class CerbungAdapter(
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
-        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        /** v1.1.32: baris sosial ala feed YouTube (gone bila tak ada stats). */
         val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
@@ -508,11 +562,20 @@ class CerbungAdapter(
         h.desc.text = c.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
-        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        // v1.1.32: ala feed YouTube (tanpa 0 palsu — gone bila stats-batch
+        // belum/gagal). Angka yang berubah dianimasikan rolling; yang sama DIAM.
         val stC = socialStats[SocialApi.key("cerpen", c.id)]
         h.socialText.visibility = if (stC == null) View.GONE else View.VISIBLE
-        if (stC != null) h.socialText.text =
-            "Dilihat ${SocialApi.formatCount(stC.views)} · Suka ${SocialApi.formatCount(stC.likes)}"
+        if (stC != null) {
+            val old = shownStats[SocialApi.key("cerpen", c.id)]
+            val dir = if (old == null || stC.views == old.views) 0
+            else if (stC.views > old.views) 1 else -1
+            RollingText.set(
+                h.socialText,
+                SocialApi.feedLine(null, stC.views, ItemDates.relativeTime("", c.date)),
+                dir
+            )
+        }
         if (c.cover.isNotEmpty()) {
             CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
@@ -566,11 +629,20 @@ class CerbungAdapter(
         h.desc.text = k.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
-        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        // v1.1.32: ala feed YouTube (tanpa 0 palsu — gone bila stats-batch
+        // belum/gagal). Angka yang berubah dianimasikan rolling; yang sama DIAM.
         val stK = socialStats[SocialApi.key("komik", k.id)]
         h.socialText.visibility = if (stK == null) View.GONE else View.VISIBLE
-        if (stK != null) h.socialText.text =
-            "Dilihat ${SocialApi.formatCount(stK.views)} · Suka ${SocialApi.formatCount(stK.likes)}"
+        if (stK != null) {
+            val old = shownStats[SocialApi.key("komik", k.id)]
+            val dir = if (old == null || stK.views == old.views) 0
+            else if (stK.views > old.views) 1 else -1
+            RollingText.set(
+                h.socialText,
+                SocialApi.feedLine(null, stK.views, ItemDates.relativeTime("", k.date)),
+                dir
+            )
+        }
         if (k.cover.isNotEmpty()) {
             CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
@@ -602,6 +674,8 @@ class CerbungAdapter(
     }
 
     override fun onViewRecycled(h: VH) {
+        // v1.1.32: batalkan animasi rolling di holder yang di-recycle.
+        RollingText.cancel(h.socialText)
         CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         super.onViewRecycled(h)
     }

@@ -172,15 +172,32 @@ object UpdateCheck {
      * GET satu URL, kembalikan body teks bila HTTP 200, null bila server
      * menjawab HTTP error (mis. 404). LEMPAR IOException bila koneksi
      * gagal — syarat Hosts.withFallback (coba host fallback sekali).
+     * v1.1.32: tanpa cache (Cache-Control: no-cache + useCaches=false —
+     * hasil cek versi harus selalu segar, jangan sajikan basi) + header
+     * X-App-Version / X-App-Signer-Sha. HTTP 426 (version_locked)
+     * menandai [versionLocked].
      */
-    fun fetchText(url: String): String? {
+    var versionLocked = false
+        private set
+
+    fun fetchText(url: String, appVersion: String? = null, signerSha: String? = null): String? {
+        versionLocked = false
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 15000
+                useCaches = false
                 setRequestProperty("User-Agent", "CerpenHozin/1.1")
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("Pragma", "no-cache")
+                if (!appVersion.isNullOrBlank()) setRequestProperty("X-App-Version", appVersion)
+                if (!signerSha.isNullOrBlank()) setRequestProperty("X-App-Signer-Sha", signerSha)
+            }
+            if (conn.responseCode == 426) {
+                versionLocked = true
+                return null
             }
             if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
             return conn.inputStream.bufferedReader(Charsets.UTF_8).readText()

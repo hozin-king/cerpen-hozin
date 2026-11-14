@@ -32,6 +32,30 @@ object CerpenApi {
     private const val CONNECT_TIMEOUT_MS = 8000
     private const val READ_TIMEOUT_MS = 60000
 
+    /**
+     * Identitas aplikasi untuk header X-App-Version / X-App-Signer-Sha
+     * (v1.1.32 — kebijakan kunci versi server). Diisi DataManager dari
+     * BuildConfig + PackageManager sebelum sync; kosong = header dilewati.
+     */
+    var appVersion: String = ""
+        private set
+    var appSignerSha: String = ""
+        private set
+
+    fun setAppIdentity(version: String, signerSha: String?) {
+        appVersion = version
+        appSignerSha = signerSha ?: ""
+    }
+
+    /**
+     * True bila request sync terakhir ditolak server dengan HTTP 426
+     * {error:"version_locked"} — versi ini dikunci, pemanggil TIDAK
+     * boleh fallback ke GitHub dan harus menampilkan dialog force-update.
+     * Di-reset tiap fetchManifest/fetchAll.
+     */
+    var versionLocked = false
+        private set
+
     data class D1Manifest(
         val version: Int,
         val updatedAt: String,
@@ -74,6 +98,8 @@ object CerpenApi {
      * `all` ~3 MB. v1.1.22: ulangan memakai host fallback workers.dev
      * HANYA bila percobaan pertama gagal koneksi (IOException);
      * HTTP error (server menjawab) tetap mengulang host yang sama.
+     * v1.1.32: kirim header X-App-Version + X-App-Signer-Sha; HTTP 426
+     * (version_locked) menandai [versionLocked] dan TIDAK diulangi.
      */
     private fun fetchBytes(url: String): ByteArray? {
         var connectionFailed = false
@@ -85,6 +111,12 @@ object CerpenApi {
                     connectTimeout = CONNECT_TIMEOUT_MS
                     readTimeout = READ_TIMEOUT_MS
                     setRequestProperty("User-Agent", "CerpenHozin/1.1")
+                    if (appVersion.isNotBlank()) setRequestProperty("X-App-Version", appVersion)
+                    if (appSignerSha.isNotBlank()) setRequestProperty("X-App-Signer-Sha", appSignerSha)
+                }
+                if (conn.responseCode == 426) {
+                    versionLocked = true
+                    return null
                 }
                 if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                     return conn.inputStream.readBytes()
@@ -109,6 +141,7 @@ object CerpenApi {
 
     /** Manifest D1 (kecil): versi + counts. Null bila gagal. */
     fun fetchManifest(contentKey: ByteArray): D1Manifest? {
+        versionLocked = false
         val pathKey = derivePathKey(contentKey)
         val body = fetchBytes("$BASE_URL${currentHash(pathKey)}/cerpen/manifest") ?: return null
         return try {
@@ -131,6 +164,7 @@ object CerpenApi {
 
     /** Dump penuh (series + episodes + komik + komik_episodes + news). Null bila gagal. */
     fun fetchAll(contentKey: ByteArray): JSONObject? {
+        versionLocked = false
         val pathKey = derivePathKey(contentKey)
         val body = fetchBytes("$BASE_URL${currentHash(pathKey)}/cerpen/all") ?: return null
         return try {

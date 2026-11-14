@@ -305,7 +305,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Gambar komik diunduh otomatis / saat tarik ke bawah untuk refresh"
+                android:text="Gambar diunduh saat konten dibuka · tersimpan untuk dibaca offline"
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
 
