@@ -536,6 +536,7 @@ class MainActivity : AppCompatActivity() {
             ArrayList(article.imageUrls)
         )
         i.putExtra(NewsDetailActivity.EXTRA_ADDED_AT, article.addedAt)
+        i.putExtra(NewsDetailActivity.EXTRA_ID, article.id)
         startActivity(i)
     }
 
@@ -571,6 +572,47 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** v1.1.31: satu stats-batch per daftar (view + like kartu).
+     *  Best-effort: gagal/offline = angka tetap disembunyikan. */
+    private fun loadListSocialStats(
+        items: List<Pair<String, String>>,
+        apply: (Map<String, SocialApi.Stats>) -> Unit
+    ) {
+        if (items.isEmpty()) return
+        Thread {
+            val map = SocialApi.fetchStatsBatch(this, items)
+            runOnUiThread { if (map.isNotEmpty()) apply(map) }
+        }.start()
+    }
+
+    /** v1.1.31: total view/like per SERIES = jumlah stats semua episodenya.
+     *  Backend hanya menyimpan stats per episode (ref series "cerpen-01"
+     *  mengembalikan stats kosong), jadi aplikasi yang menjumlahkan.
+     *  Peta hasil berkunci "kind|seriesId" — sama seperti yang dibaca adapter. */
+    private fun loadSeriesSocialStats(
+        episodeItems: List<Pair<String, String>>,
+        apply: (Map<String, SocialApi.Stats>) -> Unit
+    ) {
+        if (episodeItems.isEmpty()) return
+        Thread {
+            val raw = SocialApi.fetchStatsBatch(this, episodeItems)
+            val summed = HashMap<String, SocialApi.Stats>()
+            for ((k, s) in raw) {
+                val kind = k.substringBefore("|")
+                val seriesId = k.substringAfter("|").substringBefore(":")
+                val key = SocialApi.key(kind, seriesId)
+                val prev = summed[key]
+                summed[key] = if (prev == null) s.copy(myVote = 0)
+                else prev.copy(
+                    views = prev.views + s.views,
+                    likes = prev.likes + s.likes,
+                    dislikes = prev.dislikes + s.dislikes
+                )
+            }
+            runOnUiThread { if (summed.isNotEmpty()) apply(summed) }
+        }.start()
+    }
+
     /** Daftar berita (difilter query cari bila ada) — v1.1.11. */
     private fun applyNewsList() {
         val q = newsQuery.lowercase()
@@ -583,6 +625,9 @@ class MainActivity : AppCompatActivity() {
             filtered, { openNewsDetail(it) }, palette, scale,
             onDownload = { a, pos -> downloadNews(a, pos) }
         )
+        loadListSocialStats(filtered.map { "berita" to SocialApi.newsRef(it) }) { m ->
+            (newsList.adapter as? NewsAdapter)?.updateSocialStats(m)
+        }
     }
 
     private fun applyKomikList() {
@@ -597,6 +642,11 @@ class MainActivity : AppCompatActivity() {
             onDownload = { k, pos -> downloadKomik(k, pos) },
             newestId = newestKomikId
         )
+        loadSeriesSocialStats(filtered.flatMap { k ->
+            k.episodes.map { e -> "komik" to SocialApi.komikRef(k.id, e.no) }
+        }) { m ->
+            (komikList.adapter as? KomikAdapter)?.updateSocialStats(m)
+        }
     }
 
     private fun openKomikDetail(komik: Komik) {
@@ -709,6 +759,18 @@ class MainActivity : AppCompatActivity() {
             newestCerpenId = newestCerpenId,
             newestKomikId = newestKomikId
         )
+        loadSeriesSocialStats(mixed.flatMap {
+            when (it) {
+                is CerbungItem.CerpenItem -> it.cerpen.seasons.flatMap { s ->
+                    s.episodes.map { e -> "cerpen" to SocialApi.cerpenRef(it.cerpen.id, s.season, e.no) }
+                }
+                is CerbungItem.CergamItem -> it.komik.episodes.map { e ->
+                    "komik" to SocialApi.komikRef(it.komik.id, e.no)
+                }
+            }
+        }) { m ->
+            (cerpenList.adapter as? CerbungAdapter)?.updateSocialStats(m)
+        }
         genreScroll.visibility = if (selectedType == "Cergam") View.GONE else View.VISIBLE
     }
 

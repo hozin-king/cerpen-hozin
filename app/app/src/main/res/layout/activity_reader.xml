@@ -133,6 +133,9 @@
                 android:textColor="@color/ink"
                 android:textSize="17sp"
                 android:lineSpacingMultiplier="1.6" />
+
+            <!-- v1.1.31: baris sosial (view + like + dislike + lapor). -->
+            <include layout="@layout/social_bar" />
         </LinearLayout>
     </ScrollView>
 

@@ -45,6 +45,8 @@ class ReaderActivity : AppCompatActivity() {
     private var cerpen: Cerpen? = null
     private var seasonNo: Int = 1
     private var episodeNo: Int = 1
+    // v1.1.31: baris sosial (view + like + dislike + lapor).
+    private var socialBar: SocialBar? = null
     private var textSizeSp: Float = 17f
     private var theme: Int = ProgressStore.THEME_DAY
 
@@ -219,6 +221,12 @@ class ReaderActivity : AppCompatActivity() {
         // v1.1.30: episode tampil (gerbang lolos) — mulai pelacak baca.
         bound = true
         startTracking()
+
+        // v1.1.31: baris sosial — POST view sekali saat reader dibuka.
+        if (socialBar == null) {
+            socialBar = SocialBar(this, "cerpen", SocialApi.cerpenRef(c.id, seasonNo, episodeNo))
+            socialBar?.bind()
+        }
     }
 
     override fun onResume() {

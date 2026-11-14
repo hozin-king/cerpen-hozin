@@ -23,8 +23,16 @@ class CerpenAdapter(
     private val textScale: Float = 1f,
     private val onDownload: (Cerpen, Int) -> Unit = { _, _ -> },
     /** Id cerpen terbaru (badge NEW); null = tidak ada badge. */
-    private val newestId: String? = null
+    private val newestId: String? = null,
+    /** v1.1.31: stats dari stats-batch, kunci "kind|ref"; kosong = angka disembunyikan. */
+    private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<CerpenAdapter.VH>() {
+
+    /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
+    fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        socialStats = m
+        notifyDataSetChanged()
+    }
 
     class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val cover: ImageView = v.findViewById(R.id.cover)
@@ -32,6 +40,8 @@ class CerpenAdapter(
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
+        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         /** v1.1.7: badge "Baru" / "Season diperbarui" / "Episode diperbarui". */
         val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
@@ -58,6 +68,11 @@ class CerpenAdapter(
         h.desc.text = c.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
+        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        val st = socialStats[SocialApi.key("cerpen", c.id)]
+        h.socialText.visibility = if (st == null) View.GONE else View.VISIBLE
+        if (st != null) h.socialText.text =
+            "Dilihat ${SocialApi.formatCount(st.views)} · Suka ${SocialApi.formatCount(st.likes)}"
         // v1.1.5: cover dimuat asinkron (lazy) — decode tidak pernah di UI thread.
         if (c.cover.isNotEmpty()) {
             CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
@@ -109,14 +124,24 @@ class NewsAdapter(
     private val onClick: (NewsArticle) -> Unit = {},
     private val palette: ThemePalette = ThemeHelper.palette(ProgressStore.THEME_DAY),
     private val textScale: Float = 1f,
-    private val onDownload: (NewsArticle, Int) -> Unit = { _, _ -> }
+    private val onDownload: (NewsArticle, Int) -> Unit = { _, _ -> },
+    /** v1.1.31: stats dari stats-batch, kunci "kind|ref"; kosong = angka disembunyikan. */
+    private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<NewsAdapter.VH>() {
+
+    /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
+    fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        socialStats = m
+        notifyDataSetChanged()
+    }
 
     class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val thumb: ImageView = v.findViewById(R.id.thumb)
         val title: TextView = v.findViewById(R.id.title)
         val summary: TextView = v.findViewById(R.id.summary)
         val meta: TextView = v.findViewById(R.id.meta)
+        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         override val downloadButton: Button = v.findViewById(R.id.download_button)
         override val offlineIcon: ImageView = v.findViewById(R.id.offline_icon)
@@ -141,6 +166,11 @@ class NewsAdapter(
         val dateLabel = if (a.date.isNotEmpty()) ItemDates.format(a.date) else ""
         h.meta.text = listOf(a.source, dateLabel).filter { it.isNotEmpty() }.joinToString(" · ")
         h.meta.setTextColor(palette.muted)
+        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        val st = socialStats[SocialApi.key("berita", SocialApi.newsRef(a))]
+        h.socialText.visibility = if (st == null) View.GONE else View.VISIBLE
+        if (st != null) h.socialText.text =
+            "Dilihat ${SocialApi.formatCount(st.views)} · Suka ${SocialApi.formatCount(st.likes)}"
         h.badgeNew.visibility = if (ItemDates.isNew(a.addedAt, a.date)) View.VISIBLE else View.GONE
         val firstImage = a.images.firstOrNull() ?: a.image
         // v1.1.29: thumbnail dimuat asinkron (progressive — thumb CMS
@@ -304,8 +334,16 @@ class KomikAdapter(
     private val textScale: Float = 1f,
     private val onDownload: (Komik, Int) -> Unit = { _, _ -> },
     /** Id komik terbaru (badge NEW); null = tidak ada badge. */
-    private val newestId: String? = null
+    private val newestId: String? = null,
+    /** v1.1.31: stats dari stats-batch, kunci "kind|ref"; kosong = angka disembunyikan. */
+    private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<KomikAdapter.VH>() {
+
+    /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
+    fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        socialStats = m
+        notifyDataSetChanged()
+    }
 
     class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val cover: ImageView = v.findViewById(R.id.cover)
@@ -313,6 +351,8 @@ class KomikAdapter(
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
+        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         /** v1.1.7: badge "Baru" / "Episode diperbarui". */
         val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
@@ -348,6 +388,11 @@ class KomikAdapter(
         h.desc.text = k.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
+        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        val st = socialStats[SocialApi.key("komik", k.id)]
+        h.socialText.visibility = if (st == null) View.GONE else View.VISIBLE
+        if (st != null) h.socialText.text =
+            "Dilihat ${SocialApi.formatCount(st.views)} · Suka ${SocialApi.formatCount(st.likes)}"
         if (k.cover.isNotEmpty()) {
             CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
@@ -412,8 +457,16 @@ class CerbungAdapter(
     private val onCerpenDownload: (Cerpen, Int) -> Unit = { _, _ -> },
     private val onKomikDownload: (Komik, Int) -> Unit = { _, _ -> },
     private val newestCerpenId: String? = null,
-    private val newestKomikId: String? = null
+    private val newestKomikId: String? = null,
+    /** v1.1.31: stats dari stats-batch, kunci "kind|ref"; kosong = angka disembunyikan. */
+    private var socialStats: Map<String, SocialApi.Stats> = emptyMap()
 ) : RecyclerView.Adapter<CerbungAdapter.VH>() {
+
+    /** v1.1.31: terapkan hasil stats-batch tanpa membuat ulang adapter. */
+    fun updateSocialStats(m: Map<String, SocialApi.Stats>) {
+        socialStats = m
+        notifyDataSetChanged()
+    }
 
     class VH(v: View) : RecyclerView.ViewHolder(v), DownloadRow {
         val cover: ImageView = v.findViewById(R.id.cover)
@@ -421,6 +474,8 @@ class CerbungAdapter(
         val genre: TextView = v.findViewById(R.id.genre)
         val meta: TextView = v.findViewById(R.id.meta)
         val desc: TextView = v.findViewById(R.id.deskripsi)
+        /** v1.1.31: "Dilihat X · Suka Y" (gone bila tak ada stats). */
+        val socialText: TextView = v.findViewById(R.id.social_stats)
         val badgeNew: TextView = v.findViewById(R.id.badge_new)
         val badgeUpdated: TextView = v.findViewById(R.id.badge_updated)
         val badgeCergam: TextView = v.findViewById(R.id.badge_cergam)
@@ -453,6 +508,11 @@ class CerbungAdapter(
         h.desc.text = c.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
+        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        val stC = socialStats[SocialApi.key("cerpen", c.id)]
+        h.socialText.visibility = if (stC == null) View.GONE else View.VISIBLE
+        if (stC != null) h.socialText.text =
+            "Dilihat ${SocialApi.formatCount(stC.views)} · Suka ${SocialApi.formatCount(stC.likes)}"
         if (c.cover.isNotEmpty()) {
             CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {
@@ -506,6 +566,11 @@ class CerbungAdapter(
         h.desc.text = k.deskripsi
         h.desc.setTextColor(palette.inkSoft)
         h.desc.textSize = 14f * textScale
+        // v1.1.31: view + like (gone bila stats-batch belum/gagal — tanpa 0 palsu).
+        val stK = socialStats[SocialApi.key("komik", k.id)]
+        h.socialText.visibility = if (stK == null) View.GONE else View.VISIBLE
+        if (stK != null) h.socialText.text =
+            "Dilihat ${SocialApi.formatCount(stK.views)} · Suka ${SocialApi.formatCount(stK.likes)}"
         if (k.cover.isNotEmpty()) {
             CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
         } else {

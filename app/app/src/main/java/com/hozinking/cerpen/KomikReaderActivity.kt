@@ -50,6 +50,8 @@ class KomikReaderActivity : AppCompatActivity() {
     private var komikId: String = ""
     private var episodeNo: Int = 1
     private var startPanel: Int = 0
+    // v1.1.31: baris sosial (view + like + dislike + lapor).
+    private var socialBar: SocialBar? = null
     private var currentKomik: Komik? = null
     private var currentEpisode: KomikEpisode? = null
     private var downloading = false
@@ -228,6 +230,13 @@ class KomikReaderActivity : AppCompatActivity() {
         // v1.1.30: episode tampil (gerbang lolos) — mulai pelacak baca.
         bound = true
         startTracking()
+
+        // v1.1.31: baris sosial — POST view sekali saat reader dibuka
+        // (bind kedua, mis. muat ulang setelah unduh, tidak menghitung lagi).
+        if (socialBar == null) {
+            socialBar = SocialBar(this, "komik", SocialApi.komikRef(komik.id, episode.no))
+            socialBar?.bind()
+        }
     }
 
     /** Panel pertama yang terlihat -> "Panel X/Y" + progress bar. */

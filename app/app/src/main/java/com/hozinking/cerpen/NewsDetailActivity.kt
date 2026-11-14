@@ -38,6 +38,7 @@ class NewsDetailActivity : AppCompatActivity() {
         const val EXTRA_IMAGES = "news_images"
         const val EXTRA_IMAGE_URLS = "news_image_urls"
         const val EXTRA_ADDED_AT = "news_added_at"
+        const val EXTRA_ID = "news_id"
     }
 
     private lateinit var root: View
@@ -46,6 +47,8 @@ class NewsDetailActivity : AppCompatActivity() {
     private lateinit var metaText: TextView
     private lateinit var downloadButton: Button
     private lateinit var shareButton: Button
+    // v1.1.31: baris sosial (view + like + dislike + lapor).
+    private var socialBar: SocialBar? = null
 
     private var article: NewsArticle? = null
     private var downloading = false
@@ -73,10 +76,11 @@ class NewsDetailActivity : AppCompatActivity() {
         val images = intent.getStringArrayListExtra(EXTRA_IMAGES) ?: arrayListOf()
         val imageUrls = intent.getStringArrayListExtra(EXTRA_IMAGE_URLS) ?: arrayListOf()
         val addedAt = intent.getStringExtra(EXTRA_ADDED_AT) ?: ""
+        val newsId = intent.getStringExtra(EXTRA_ID) ?: ""
         article = NewsArticle(
             title = title, summary = summary, source = source, date = date,
             image = images.firstOrNull(), images = images, details = details,
-            imageUrls = imageUrls, addedAt = addedAt
+            imageUrls = imageUrls, addedAt = addedAt, id = newsId
         )
 
         supportActionBar?.title = if (title.length > 28) title.take(28) + "…" else title
@@ -93,6 +97,11 @@ class NewsDetailActivity : AppCompatActivity() {
         }
         applyThemeAndFont()
         lastTheme = ProgressStore.getTheme(this)
+        // v1.1.31: baris sosial — POST view sekali saat artikel dibuka.
+        article?.let { a ->
+            socialBar = SocialBar(this, "berita", SocialApi.newsRef(a))
+            socialBar?.bind()
+        }
         // Teks dulu (placeholder untuk gambar), gambar menyusul asinkron.
         buildBody(null)
         loadImages()

@@ -56,6 +56,17 @@
             android:textColor="@color/ink_soft"
             android:textSize="14sp" />
 
+        <!-- v1.1.31: total view + like dari stats-batch; gone bila
+             belum ada stats (gagal/offline) — tanpa 0 palsu. -->
+        <TextView
+            android:id="@+id/social_stats"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="@color/muted"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
         <!-- v1.1.5: status unduh per konten — badge NEW, tombol Unduh,
              atau ikon sudah-diunduh. Semua gone secara default; adapter
              yang menampilkan sesuai state. -->

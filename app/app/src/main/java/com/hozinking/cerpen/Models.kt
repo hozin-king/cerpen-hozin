@@ -97,7 +97,9 @@ data class NewsArticle(
     /** URL asli gambar pertama (untuk unduh on-demand bila .enc tidak dibundel repo). */
     val imageUrls: List<String> = emptyList(),
     /** Waktu ditambahkan (ISO "yyyy-MM-dd'T'HH:mm:ss+07:00"); dipakai badge NEW 24 jam. */
-    val addedAt: String = ""
+    val addedAt: String = "",
+    /** v1.1.31: id baris cerpen_news (ref API sosial); "" bila data lama tak membawanya. */
+    val id: String = ""
 )
 
 /** Ubah nilai `details` mentah (String / JSONObject / JSONArray / null) jadi teks bacaan rapi.
@@ -397,7 +399,8 @@ object ContentLoader {
                         images = imgs,
                         details = NewsDetailsFormatter.format(o.opt("details")),
                         imageUrls = imgUrls,
-                        addedAt = o.optString("added_at", "")
+                        addedAt = o.optString("added_at", ""),
+                        id = o.optString("id", "")
                     )
                 )
             }

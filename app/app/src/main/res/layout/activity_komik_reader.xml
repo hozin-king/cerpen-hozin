@@ -99,4 +99,7 @@
             android:textColor="@color/muted"
             android:textSize="12sp" />
     </LinearLayout>
+
+    <!-- v1.1.31: baris sosial (view + like + dislike + lapor). -->
+    <include layout="@layout/social_bar" />
 </LinearLayout>
