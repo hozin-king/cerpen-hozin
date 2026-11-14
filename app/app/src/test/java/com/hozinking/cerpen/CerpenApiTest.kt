@@ -193,6 +193,7 @@ class CerpenApiTest {
         assertEquals("https://example.com/i1.jpg", news[0].imageUrls[0])
         assertTrue(news[0].details.contains("tes"))
         assertEquals("2026-11-12T11:20:18+07:00", news[0].addedAt)
+        assertEquals("news-abc", news[0].id) // v1.1.31.1: id D1 harus lolos ke news.json
 
         assertEquals(
             "https://raw.githubusercontent.com/hozin-king/cerpen-hozin/main/data/covers/cover_01.jpg.enc",

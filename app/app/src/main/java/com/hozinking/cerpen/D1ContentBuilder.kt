@@ -226,6 +226,7 @@ object D1ContentBuilder {
             val imgs = if (images.isNotEmpty()) images
                 else listOfNotNull(n.optString("image_url", "").takeIf { it.isNotEmpty() })
             outArr.put(JSONObject().apply {
+                put("id", n.optString("id", ""))
                 put("title", n.optString("title", ""))
                 put("summary", n.optString("summary", ""))
                 put("source", n.optString("source_name", ""))
