@@ -133,6 +133,53 @@ class UpdateCheckTest {
         assertNull(UpdateCheck.parseLatestRelease("bukan json"))
     }
 
+    // ---------- lantai minimum server (v1.1.39) ----------
+    // Endpoint /api/cerpen-version tidak pernah 426 (sengaja terbuka) —
+    // deteksi kunci di jalur cek update hanya lewat min_version.
+
+    @Test
+    fun `parse min_version dari endpoint`() {
+        val r = UpdateCheck.parseLatestRelease(
+            """{"tag":"v1.1.39","version":"1.1.39","apk_url":"https://example.com/a.apk","min_version":"1.1.39"}"""
+        )
+        assertEquals("1.1.39", r?.minVersion)
+    }
+
+    @Test
+    fun `min_version hilang atau invalid menjadi null (fail-open)`() {
+        assertNull(
+            UpdateCheck.parseLatestRelease("""{"tag":"v1.1.39","version":"1.1.39"}""")?.minVersion
+        )
+        assertNull(
+            UpdateCheck.parseLatestRelease(
+                """{"tag":"v1.1.39","version":"1.1.39","min_version":"ngawur"}"""
+            )?.minVersion
+        )
+    }
+
+    @Test
+    fun `di bawah lantai minimum terkunci`() {
+        assertTrue(UpdateCheck.isBelowMinimum("1.1.38", "1.1.39"))
+        assertFalse(UpdateCheck.isBelowMinimum("1.1.39", "1.1.39"))
+        assertFalse(UpdateCheck.isBelowMinimum("1.1.40", "1.1.39"))
+        assertFalse(UpdateCheck.isBelowMinimum("1.1.38", null))
+        assertFalse(UpdateCheck.isBelowMinimum("1.1.38", "ngawur"))
+    }
+
+    @Test
+    fun `di bawah lantai minimum dialog paksa walau cuma tertinggal 1 rilis`() {
+        val rel = UpdateCheck.ReleaseInfo("v1.1.39", "1.1.39", "https://example.com/a.apk", "1.1.39")
+        val d = UpdateCheck.decide("1.1.38", rel, listOf("v1.1.39"))
+        assertTrue(d is UpdateCheck.Decision.Force)
+    }
+
+    @Test
+    fun `di atas lantai minimum tetap soft bila tertinggal 1 rilis`() {
+        val rel = UpdateCheck.ReleaseInfo("v1.1.39", "1.1.39", "https://example.com/a.apk", "1.1.38")
+        val d = UpdateCheck.decide("1.1.38", rel, listOf("v1.1.39"))
+        assertTrue(d is UpdateCheck.Decision.Soft)
+    }
+
     // ---------- verifikasi SHA signer (v1.1.23, anti-bypass) ----------
 
     @Test

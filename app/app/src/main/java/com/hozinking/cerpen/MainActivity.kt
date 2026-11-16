@@ -1,8 +1,11 @@
 package com.hozinking.cerpen
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -145,6 +148,42 @@ class MainActivity : AppCompatActivity() {
     private var exitDialog: AlertDialog? = null
     private var updateProgressDialog: AlertDialog? = null
     private var updateDownloadCancelled = false
+
+    // ============ PEMICU KUNCI VERSI SAAT KONEK INTERNET (v1.1.39) ============
+    // Keluhan user (tes POCO v1.1.36): dialog "Update wajib" HANYA muncul
+    // setelah refresh manual; aplikasi yang didiamkan tidak pernah
+    // mengunci. NetworkCallback ini menjalankan cek version-gate SEKE-
+    // TIKA saat jaringan (kembali) tersedia — event-driven, tanpa
+    // polling. Bila kunci versi sudah tersimpan, dialog tampil seketika
+    // tanpa menunggu hasil cek jaringan.
+    private val connectivityCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            super.onAvailable(network)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (serverVersionLocked) showVersionLockedDialog()
+                checkForAppUpdate()
+            }
+        }
+    }
+
+    private fun registerConnectivityCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.registerDefaultNetworkCallback(connectivityCallback)
+        } catch (e: Exception) {
+            // Tanpa callback, cek update tetap jalan lewat onResume/refresh.
+        }
+    }
+
+    private fun unregisterConnectivityCallback() {
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.unregisterNetworkCallback(connectivityCallback)
+        } catch (e: Exception) {
+            // Sudah tidak terdaftar / activity mati.
+        }
+    }
 
     // v1.1.5: InvalidSetHasFixedSize di-suppress — false positive dari
     // detector lint (file-scoped): history_list/bookmark_list memang
@@ -331,6 +370,8 @@ class MainActivity : AppCompatActivity() {
         // Gagal/batal instal = file tetap ada untuk retry.
         AppUpdate.deleteInstalledApks(this, BuildConfig.VERSION_NAME)
         checkForAppUpdate()
+        // v1.1.39: kunci versi langsung saat (kembali) konek internet.
+        registerConnectivityCallback()
         // v1.1.24: back di beranda = konfirmasi keluar, bukan langsung tutup.
         // Sub-layar (detail/baca/pengaturan) adalah activity terpisah —
         // back di sana kembali sendiri tanpa menyentuh callback ini.
@@ -345,6 +386,11 @@ class MainActivity : AppCompatActivity() {
         autoSyncContent()
         // v1.1.34: bookmark ikut akun — kirim antrean + tarik dari server.
         BookmarkSync.syncNow(this)
+    }
+
+    override fun onDestroy() {
+        unregisterConnectivityCallback()
+        super.onDestroy()
     }
 
     override fun onResume() {
@@ -1149,7 +1195,9 @@ class MainActivity : AppCompatActivity() {
                     // v1.1.30: tautan berbagi ke episode komik juga lewat gerbang.
                     val locallyRead = CoinStore.isKomikReadLocally(this, k.id, episode) ||
                         ProgressStore.getLastKomik(this, k.id)?.episode == episode
-                    CoinUi.openEpisode(this, "komik", k.id, 1, episode, locallyRead) {
+                    // v1.1.39: aturan buka offline (semua panel terunduh).
+                    val downloaded = k.episode(episode)?.let { DataManager.isKomikEpisodeOffline(this, it) } ?: false
+                    CoinUi.openEpisode(this, "komik", k.id, 1, episode, locallyRead, downloaded) {
                         val i = Intent(this, KomikReaderActivity::class.java)
                         i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, k.id)
                         i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)
@@ -1450,8 +1498,13 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         val last = updatePrefs.getLong("last_check_ms", 0)
         if (!signerMismatch && now - last < 6 * 60 * 60 * 1000L) return
-        updatePrefs.edit().putLong("last_check_ms", now).apply()
         Thread {
+            // v1.1.39: throttle baru dikonsumsi bila cek benar-benar
+            // selesai (server menjawab — 200/426/403/404). Gagal jaringan
+            // (IOException di kedua host) TIDAK mengonsumsi throttle:
+            // dulu start offline menghabiskan jatah 6 jam sehingga dialog
+            // kunci tidak pernah muncul saat data dinyalakan lagi.
+            var networkFailed = false
             val latestJson = try {
                 Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) {
                     UpdateCheck.fetchText(
@@ -1460,7 +1513,11 @@ class MainActivity : AppCompatActivity() {
                     )
                 }
             } catch (e: IOException) {
+                networkFailed = true
                 null
+            }
+            if (!networkFailed) {
+                updatePrefs.edit().putLong("last_check_ms", System.currentTimeMillis()).apply()
             }
             // v1.1.32: server mengunci versi ini (HTTP 426) — paksa update.
             if (UpdateCheck.versionLocked) {

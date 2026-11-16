@@ -51,6 +51,10 @@ object CoinUi {
      * Gate utama: buka satu episode lewat CoinGate.
      * [locallyRead] = sudah dibaca di perangkat ini sebelum v1.1.30
      * (riwayat lokal) — dihitung sebagai sudah dimiliki.
+     * [downloadedLocally] (v1.1.39): konten sudah terunduh lokal —
+     * cerpen: teks ada di katalog lokal (default true, benar bila
+     * daftar sudah dimuat lokal); komik: semua panel ada di perangkat
+     * (DataManager.isKomikEpisodeOffline). Dipakai aturan buka offline.
      * [open] dipanggil HANYA bila episode boleh dibuka.
      */
     fun openEpisode(
@@ -60,9 +64,10 @@ object CoinUi {
         season: Int,
         no: Int,
         locallyRead: Boolean,
+        downloadedLocally: Boolean = true,
         open: () -> Unit
     ) {
-        ensureUnlocked(activity, kind, targetId, season, no, locallyRead, open) { /* batal: diam */ }
+        ensureUnlocked(activity, kind, targetId, season, no, locallyRead, downloadedLocally, open) { /* batal: diam */ }
     }
 
     /**
@@ -77,17 +82,35 @@ object CoinUi {
         season: Int,
         no: Int,
         locallyRead: Boolean,
+        downloadedLocally: Boolean = true,
         onAllowed: () -> Unit,
         onDenied: () -> Unit
     ) {
         val state = CoinStore.snapshot(activity)
         val now = System.currentTimeMillis()
-        when (val lock = CoinGate.lockState(state, kind, targetId, season, no, locallyRead, now)) {
+        val lock = CoinGate.lockState(state, kind, targetId, season, no, locallyRead, now)
+        // v1.1.39: aturan buka offline (perintah user 16 Nov 2026) —
+        // offline HANYA bila terunduh DAN dimiliki (gratis / sudah dibeli).
+        // VIP offline ditolak (wajib validasi server); terkunci ditolak
+        // (butuh internet untuk membeli). Online = gerbang lama.
+        if (!OfflineOpen.isOnline(activity)) {
+            when (val d = OfflineOpen.decide(false, lock, downloadedLocally)) {
+                is OfflineOpen.Decision.Allow -> { /* lanjut ke gerbang di bawah */ }
+                is OfflineOpen.Decision.Deny -> {
+                    Toast.makeText(activity, OfflineOpen.denyMessage(d.reason), Toast.LENGTH_LONG).show()
+                    onDenied()
+                    return
+                }
+            }
+        }
+        when (lock) {
             is CoinGate.LockState.Free -> onAllowed()
             is CoinGate.LockState.Unlocked -> onAllowed()
             is CoinGate.LockState.Vip -> {
                 // VIP: catat unlock di server (gratis, tanpa potong koin).
-                // Offline = tetap buka dari cache VIP; banned = tolak.
+                // v1.1.39: cabang ini hanya terjangkau saat ONLINE
+                // (offline sudah ditolak di atas — VIP wajib validasi
+                // server). Banned = tolak.
                 Thread {
                     val r = CoinApi.purchase(activity, kind, targetId, season, no)
                     activity.runOnUiThread {

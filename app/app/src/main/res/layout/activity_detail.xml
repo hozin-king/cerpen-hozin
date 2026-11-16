@@ -35,13 +35,23 @@
                 android:layout_weight="1"
                 android:orientation="vertical">
 
+                <!-- v1.1.39: judul marquee — satu baris berjalan, bukan
+                     dibungkus dua baris. Marquee jalan bila teks lebih
+                     panjang dari kolom (isSelected=true di bind()
+                     DetailActivity/KomikDetailActivity). -->
                 <TextView
                     android:id="@+id/detail_judul"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="@color/ink"
                     android:textSize="20sp"
-                    android:textStyle="bold" />
+                    android:textStyle="bold"
+                    android:singleLine="true"
+                    android:ellipsize="marquee"
+                    android:marqueeRepeatLimit="marquee_forever"
+                    android:scrollHorizontally="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true" />
 
                 <TextView
                     android:id="@+id/detail_genre"

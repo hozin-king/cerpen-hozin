@@ -158,6 +158,8 @@ class DetailActivity : AppCompatActivity() {
     private fun bind(c: Cerpen) {
         supportActionBar?.title = c.judul
         judul.text = c.judul
+        // v1.1.39: judul marquee — satu baris berjalan (lihat layout).
+        judul.isSelected = true
         genre.text = c.genre
         meta.text = "${c.totalEpisodes} episode · ${c.seasons.size} season"
         deskripsi.text = c.deskripsi

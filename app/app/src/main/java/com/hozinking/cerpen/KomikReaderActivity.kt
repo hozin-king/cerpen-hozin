@@ -214,7 +214,10 @@ class KomikReaderActivity : AppCompatActivity() {
     private fun bind(komik: Komik, episode: KomikEpisode) {
         val locallyRead = CoinStore.isKomikReadLocally(this, komik.id, episode.no) ||
             ProgressStore.getLastKomik(this, komik.id)?.episode == episode.no
+        // v1.1.39: aturan buka offline — semua panel harus sudah ada
+        // di perangkat (bila tidak, episode ditolak saat offline).
         CoinUi.ensureUnlocked(this, "komik", komik.id, 1, episode.no, locallyRead,
+            downloadedLocally = DataManager.isKomikEpisodeOffline(this, episode),
             onAllowed = { bindContent(komik, episode) },
             onDenied = { finish() })
     }
@@ -284,7 +287,10 @@ class KomikReaderActivity : AppCompatActivity() {
         if (chromeVisible) supportActionBar?.show() else supportActionBar?.hide()
     }
 
-    /** Single-tap (bukan scroll) pada RecyclerView -> toggle chrome. */
+    /** Single-tap (bukan scroll) pada RecyclerView -> toggle chrome.
+     *  v1.1.39: anti-zoom — pinch (2+ jari) ditelan di sini sebelum
+     *  sampai ke daftar, dan double-tap ditelan tanpa aksi, supaya
+     *  panel tidak bisa di-zoom. Tap 1 jari + scroll tetap normal. */
     private inner class TapToToggleChrome : RecyclerView.OnItemTouchListener {
         private val detector = GestureDetector(
             this@KomikReaderActivity,
@@ -293,10 +299,15 @@ class KomikReaderActivity : AppCompatActivity() {
                     toggleChrome()
                     return true
                 }
+
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    return true
+                }
             }
         )
 
         override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+            if (ZoomLock.shouldConsumeTouch(e.pointerCount)) return true
             detector.onTouchEvent(e)
             return false
         }

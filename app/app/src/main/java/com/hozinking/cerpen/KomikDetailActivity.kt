@@ -133,6 +133,8 @@ class KomikDetailActivity : AppCompatActivity() {
     private fun bind(k: Komik) {
         supportActionBar?.title = k.judul
         judul.text = k.judul
+        // v1.1.39: judul marquee — satu baris berjalan (lihat layout).
+        judul.isSelected = true
         genre.text = k.genre
         meta.text = "${k.totalEpisodes} episode · ${k.totalPanels} panel"
         deskripsi.text = k.deskripsi
@@ -283,7 +285,10 @@ class KomikDetailActivity : AppCompatActivity() {
     private fun openReader(komikId: String, episode: Int, panel: Int = 0) {
         val locallyRead = CoinStore.isKomikReadLocally(this, komikId, episode) ||
             ProgressStore.getLastKomik(this, komikId)?.episode == episode
-        CoinUi.openEpisode(this, "komik", komikId, 1, episode, locallyRead) {
+        // v1.1.39: aturan buka offline — episode komik "terunduh" bila
+        // semua panelnya ada di perangkat.
+        val downloaded = komik?.episode(episode)?.let { DataManager.isKomikEpisodeOffline(this, it) } ?: false
+        CoinUi.openEpisode(this, "komik", komikId, 1, episode, locallyRead, downloaded) {
             val i = Intent(this, KomikReaderActivity::class.java)
             i.putExtra(KomikReaderActivity.EXTRA_KOMIK_ID, komikId)
             i.putExtra(KomikReaderActivity.EXTRA_EPISODE, episode)

@@ -42,8 +42,10 @@ object UpdateCheck {
     const val OFFICIAL_SIGNER_SHA256 =
         "75ba028f4f9b401b3f414a2b9e63617fa35b503c692c5f6c188e3724a7a01c1d"
 
-    /** Info satu rilis dari API GitHub. */
-    data class ReleaseInfo(val tag: String, val version: String, val apkUrl: String?)
+    /** Info satu rilis dari API GitHub. [minVersion] (v1.1.39): lantai
+     *  minimum server dari /api/cerpen-version — di bawahnya aplikasi
+     *  dikunci total (426 di jalur sync). Null bila endpoint lama. */
+    data class ReleaseInfo(val tag: String, val version: String, val apkUrl: String?, val minVersion: String? = null)
 
     /** Hasil keputusan cek update (logika murni, bisa dites tanpa Android). */
     sealed class Decision {
@@ -109,8 +111,10 @@ object UpdateCheck {
 
     /**
      * Parse JSON endpoint CMS /api/cerpen-version:
-     * {"tag":"v1.1.28","version":"1.1.28","apk_url":"...","published_at":"..."}.
+     * {"tag":"v1.1.28","version":"1.1.28","apk_url":"...","published_at":"...",
+     *  "min_version":"1.1.39"}.
      * Null bila tag/version invalid (fail-open). apk_url boleh kosong.
+     * min_version invalid diabaikan (null) — fail-open, bukan kunci.
      */
     fun parseLatestRelease(jsonText: String): ReleaseInfo? {
         return try {
@@ -121,19 +125,37 @@ object UpdateCheck {
             }
             if (parseVersion(tag) == null || parseVersion(version) == null) return null
             val apkUrl = obj.optString("apk_url", "").ifEmpty { null }
-            ReleaseInfo(tag, version, apkUrl)
+            val minVersion = obj.optString("min_version", "").ifEmpty { null }
+                ?.takeIf { parseVersion(it) != null }
+            ReleaseInfo(tag, version, apkUrl, minVersion)
         } catch (e: Exception) {
             null
         }
     }
 
     /**
+     * v1.1.39: true bila versi terpasang di bawah lantai minimum server.
+     * Endpoint /api/cerpen-version TIDAK PERNAH mengembalikan 426
+     * (sengaja terbuka supaya klien lama bisa tahu versi terbaru) —
+     * jadi deteksi kunci di jalur cek update HANYA bisa lewat
+     * perbandingan min_version ini, bukan lewat HTTP 426.
+     */
+    fun isBelowMinimum(installed: String, minVersion: String?): Boolean {
+        if (minVersion.isNullOrBlank()) return false
+        if (parseVersion(minVersion) == null) return false
+        return compareVersions(installed, minVersion) < 0
+    }
+
+    /**
      * Keputusan update dari versi terpasang + rilis terbaru + daftar tag.
      * Bila daftar tag gagal diambil (kosong), asumsikan tertinggal 1 rilis
      * (soft) — jangan paksa update berdasarkan data yang tidak lengkap.
+     * v1.1.39: di bawah lantai minimum server -> Force, apa pun kata
+     * daftar tag (lantai diperiksa dulu, sebelum banding versi terbaru).
      */
     fun decide(installed: String, latest: ReleaseInfo?, tags: List<String>): Decision {
         if (latest == null) return Decision.None
+        if (isBelowMinimum(installed, latest.minVersion)) return Decision.Force(latest)
         if (compareVersions(latest.version, installed) <= 0) return Decision.None
         val behind = if (tags.isEmpty()) 1 else countNewerReleases(installed, tags)
         return if (behind >= FORCE_AFTER_BEHIND) Decision.Force(latest)
