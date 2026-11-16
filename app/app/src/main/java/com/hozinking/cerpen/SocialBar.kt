@@ -22,7 +22,8 @@ import androidx.appcompat.app.AppCompatActivity
  * reader (showReportDialog kini public, dipanggil activity); baris ini
  * menampilkan format ala halaman video YouTube — "206 suka · 12 rb
  * x dibaca · 1 jam lalu" — dengan animasi rolling digit saat angka
- * berubah + refresh live 30 dtk selama layar aktif (start/stopLiveUpdates).
+ * berubah + refresh sekali saat layar dibuka (v1.1.36: tanpa polling
+ * berkala — dulu live 30 dtk; start/stopLiveUpdates).
  *
  * Perilaku: POST view SEKALI saat reader dibuka (bind kedua dari
  * activity yang sama — mis. muat ulang episode komik setelah unduh —
@@ -45,11 +46,9 @@ class SocialBar(
     private var viewPosted = false
     /** Stats yang sedang tampil (pembanding arah animasi rolling). */
     private var shownStats: SocialApi.Stats? = null
-    /** Polling live: handler + runnable + penjaga aktif (30 dtk, hanya saat resumed). */
-    private val pollHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private val pollRunnable = Runnable { pollStats() }
+    /** v1.1.36: tanpa polling berkala — stats disegarkan sekali saat
+     *  layar dibuka (startLiveUpdates), bukan tiap 30 detik. */
     private var polling = false
-    private val pollIntervalMs = 30_000L
 
     /** Kategori lapor (value server + label Indonesia). */
     private val categories = listOf(
@@ -140,19 +139,19 @@ class SocialBar(
     }
 
     /**
-     * Refresh live (v1.1.32): GET /stats tiap 30 dtk selama layar aktif.
-     * Angka yang berubah diterapkan via applyStats (rolling); yang sama
-     * DIAM. Dipanggil activity dari onResume; berhenti di onPause.
+     * Refresh stats SEKALI saat layar dibuka (v1.1.36): GET /stats sekali,
+     * tanpa polling berkala — hemat data. Angka yang berubah diterapkan
+     * via applyStats (rolling); yang sama DIAM. Dipanggil activity dari
+     * onResume; berhenti di onPause.
      */
     fun startLiveUpdates() {
         if (polling) return
         polling = true
-        pollHandler.postDelayed(pollRunnable, pollIntervalMs)
+        pollStats()
     }
 
     fun stopLiveUpdates() {
         polling = false
-        pollHandler.removeCallbacks(pollRunnable)
     }
 
     private fun pollStats() {
@@ -170,7 +169,7 @@ class SocialBar(
                         applyStats()
                     }
                 }
-                if (polling) pollHandler.postDelayed(pollRunnable, pollIntervalMs)
+                // v1.1.36: tidak dijadwalkan ulang — sekali per buka layar.
             }
         }.start()
     }

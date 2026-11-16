@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.View
@@ -118,19 +116,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingShareToken: String? = null
     /** true saat satu proses sync sedang berjalan — cegah tumpuk. */
     private var syncBusy = false
-    /** v1.1.28: cek berkala manifest D1 saat aplikasi di foreground. */
-    private val manifestCheckHandler = Handler(Looper.getMainLooper())
-    private val manifestCheckRunnable = Runnable { checkManifestForUpdates() }
-    /** true hanya antara onResume dan onPause — penjaga cek berkala. */
-    @Volatile
-    private var manifestCheckActive = false
-    /** v1.1.32: polling ringan stats sosial (view/like) — 60 dtk, hanya tab aktif. */
-    private val socialPollHandler = Handler(Looper.getMainLooper())
-    private val socialPollRunnable = Runnable { refreshVisibleListSocialStats() }
-    /** true hanya antara onResume dan onPause — penjaga polling stats. */
-    @Volatile
-    private var socialPollActive = false
-    /** Daftar terfilter terakhir (dipakai polling stats tanpa membuat ulang adapter). */
+    /** Daftar terfilter terakhir. */
     private var lastNewsFiltered: List<NewsArticle> = emptyList()
     private var lastKomikFiltered: List<Komik> = emptyList()
     private var lastMixedFiltered: List<CerbungItem> = emptyList()
@@ -356,8 +342,6 @@ class MainActivity : AppCompatActivity() {
         // v1.1.24: pulihkan dialog keluar yang tertunda (rotasi / proses mati).
         restorePendingExitDialog()
         autoSyncContent()
-        startManifestCheck()
-        startSocialPoll()
         if (serverVersionLocked) showVersionLockedDialog()
         if (cerpenData.isNotEmpty()) {
             applyCerpenFilter()
@@ -377,14 +361,6 @@ class MainActivity : AppCompatActivity() {
             refreshCoinChip()
             refreshDrawerHeader()
         }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // v1.1.28: hentikan cek berkala saat aplikasi tidak di foreground.
-        stopManifestCheck()
-        // v1.1.32: hentikan polling stats sosial juga.
-        stopSocialPoll()
     }
 
     /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
@@ -1149,10 +1125,12 @@ class MainActivity : AppCompatActivity() {
     // (v1.1.28: dulu 30 menit — aplikasi yang dibuka lagi dalam 30 menit
     // tidak pernah tahu ada konten baru). Fail-open: tanpa internet atau
     // gagal = diam, konten lama tetap bisa dibaca. Toast HANYA bila ada
-    // konten baru — bila sudah terbaru, diam.
-    /** Jeda cek berkala manifest saat aplikasi di foreground (v1.1.28). */
-    private val manifestCheckIntervalMs = 5 * 60 * 1000L
-
+    // konten baru — bila sudah terbaru, diam. v1.1.36: TIDAK ADA lagi cek
+    // berkala saat aplikasi terbuka (dulu tiap 5 menit) — refresh hanya
+    // saat aplikasi dibuka (throttle 5 menit di bawah) atau tarik untuk
+    // refresh. Angka view/like daftar juga tidak lagi di-poll tiap
+    // 60 detik; angka dimuat saat daftar diterapkan (buka/filter/ganti
+    // tab) — fiturnya tetap, pollingnya yang hilang.
     private fun autoSyncContent(force: Boolean = false) {
         // Jangan tumpuk dengan sync manual yang sedang berjalan.
         if (syncBusy) return
@@ -1179,117 +1157,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    /** Mulai cek berkala manifest (dipanggil di onResume). */
-    private fun startManifestCheck() {
-        manifestCheckActive = true
-        scheduleManifestCheck()
-    }
-
-    /** Hentikan cek berkala manifest (dipanggil di onPause). */
-    private fun stopManifestCheck() {
-        manifestCheckActive = false
-        manifestCheckHandler.removeCallbacks(manifestCheckRunnable)
-    }
-
-    /** Jadwalkan cek manifest berikutnya (hanya bila masih resumed). */
-    private fun scheduleManifestCheck() {
-        manifestCheckHandler.removeCallbacks(manifestCheckRunnable)
-        if (manifestCheckActive) {
-            manifestCheckHandler.postDelayed(manifestCheckRunnable, manifestCheckIntervalMs)
-        }
-    }
-
-    // ============ POLLING STATS SOSIAL (v1.1.32) ============
-    // Angka view/like daftar disegarkan live selama layar aktif (60 dtk,
-    // HANYA tab yang sedang tampil — hemat kuota/baterai). Adapter TIDAK
-    // dibuat ulang; angka yang berubah dianimasikan rolling (naik/turun),
-    // yang sama DIAM. Berhenti di onPause (stopSocialPoll).
-
-    /** Mulai polling stats (dipanggil di onResume). */
-    private fun startSocialPoll() {
-        socialPollActive = true
-        scheduleSocialPoll()
-    }
-
-    /** Hentikan polling stats (dipanggil di onPause). */
-    private fun stopSocialPoll() {
-        socialPollActive = false
-        socialPollHandler.removeCallbacks(socialPollRunnable)
-    }
-
-    /** Jadwalkan polling berikutnya (hanya bila masih resumed). */
-    private fun scheduleSocialPoll() {
-        socialPollHandler.removeCallbacks(socialPollRunnable)
-        if (socialPollActive) {
-            socialPollHandler.postDelayed(socialPollRunnable, 60_000L)
-        }
-    }
-
-    /** Segarkan stats-batch tab aktif dari daftar terfilter terakhir. */
-    private fun refreshVisibleListSocialStats() {
-        if (!socialPollActive || isFinishing || isDestroyed) {
-            scheduleSocialPoll()
-            return
-        }
-        when (selectedTab) {
-            0 -> loadSeriesSocialStats(mixedStatsItems(lastMixedFiltered)) { m ->
-                (cerpenList.adapter as? CerbungAdapter)?.updateSocialStats(m)
-            }
-            1 -> loadListSocialStats(newsStatsItems(lastNewsFiltered)) { m ->
-                (newsList.adapter as? NewsAdapter)?.updateSocialStats(m)
-            }
-            2 -> loadSeriesSocialStats(komikStatsItems(lastKomikFiltered)) { m ->
-                (komikList.adapter as? KomikAdapter)?.updateSocialStats(m)
-            }
-            // Tab Koleksi (3) tidak punya stats-batch — dilewati.
-        }
-        scheduleSocialPoll()
-    }
-
-    /**
-     * Cek berkala manifest D1 saat aplikasi terbuka (v1.1.28): hanya
-     * fetchManifest yang murah; bila versinya naik dari versi tersimpan
-     * -> jalankan sync penuh (force, lewati throttle auto-sync) lalu
-     * muat ulang daftar + toast seperti jalur auto-sync. Bila versi
-     * sama -> diam, jangan sentuh daftar. Fail-open: tanpa internet /
-     * gagal = diam, konten lama tetap bisa dibaca. Tanpa service atau
-     * worker latar — cukup Handler yang hidup saat foreground.
-     */
-    private fun checkManifestForUpdates() {
-        if (!manifestCheckActive || isFinishing || isDestroyed) {
-            scheduleManifestCheck()
-            return
-        }
-        Thread {
-            try {
-                val key = ContentGuard.getKey()
-                val manifest = key?.let { CerpenApi.fetchManifest(it) }
-                // v1.1.32: server mengunci versi ini — tampilkan force-update.
-                if (CerpenApi.versionLocked) {
-                    runOnUiThread {
-                        if (!isFinishing && !isDestroyed) {
-                            serverVersionLocked = true
-                            showVersionLockedDialog()
-                        }
-                    }
-                }
-                if (manifest != null && manifest.version > 0 &&
-                    manifest.version > DataManager.storedD1Version(this@MainActivity)
-                ) {
-                    runOnUiThread {
-                        if (manifestCheckActive && !isFinishing && !isDestroyed) {
-                            autoSyncContent(force = true)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                runOnUiThread { scheduleManifestCheck() }
-            }
-        }.start()
     }
 
     private fun syncNow() {

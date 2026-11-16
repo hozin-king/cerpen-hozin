@@ -90,7 +90,7 @@ class CerpenAdapter(
         }
         // v1.1.5: cover dimuat asinkron (lazy) — decode tidak pernah di UI thread.
         if (c.cover.isNotEmpty()) {
-            CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
+            CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder, loadFull = false)
         } else {
             CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         }
@@ -204,12 +204,12 @@ class NewsAdapter(
         }
         h.badgeNew.visibility = if (ItemDates.isNew(a.addedAt, a.date)) View.VISIBLE else View.GONE
         val firstImage = a.images.firstOrNull() ?: a.image
-        // v1.1.29: thumbnail dimuat asinkron (progressive — thumb CMS
-        // dulu, full menyusul di latar via CoverCache.loadInto); gambar
-        // yang belum ada juga diunduh per item lewat tombol Unduh /
-        // buka detail.
+        // v1.1.29: thumbnail dimuat asinkron (progressive — thumb CMS).
+        // v1.1.36: daftar cukup thumb (loadFull = false) — full TIDAK
+        // diunduh di latar; gambar yang belum ada juga diunduh per item
+        // lewat tombol Unduh / buka detail.
         if (!firstImage.isNullOrEmpty()) {
-            CoverCache.loadInto(h.itemView.context, "news/$firstImage", 300, h.thumb, R.drawable.news_placeholder)
+            CoverCache.loadInto(h.itemView.context, "news/$firstImage", 300, h.thumb, R.drawable.news_placeholder, loadFull = false)
         } else {
             CoverCache.clear(h.thumb, R.drawable.news_placeholder)
         }
@@ -476,7 +476,7 @@ class KomikAdapter(
             )
         }
         if (k.cover.isNotEmpty()) {
-            CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
+            CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder, loadFull = false)
         } else {
             CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         }
@@ -611,7 +611,7 @@ class CerbungAdapter(
             )
         }
         if (c.cover.isNotEmpty()) {
-            CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder)
+            CoverCache.loadInto(h.itemView.context, "covers/${c.cover}", 300, h.cover, R.drawable.cover_placeholder, loadFull = false)
         } else {
             CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         }
@@ -678,7 +678,7 @@ class CerbungAdapter(
             )
         }
         if (k.cover.isNotEmpty()) {
-            CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder)
+            CoverCache.loadInto(ctx, "komik/covers/${k.cover}", 300, h.cover, R.drawable.cover_placeholder, loadFull = false)
         } else {
             CoverCache.clear(h.cover, R.drawable.cover_placeholder)
         }

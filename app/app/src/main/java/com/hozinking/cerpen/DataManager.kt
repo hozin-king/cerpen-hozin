@@ -842,6 +842,18 @@ object DataManager {
      */
     fun fetchCmsImageBytes(context: Context, assetPath: String, thumb: Boolean): ByteArray? {
         val key = ContentGuard.getKey() ?: return null
+        // v1.1.36: thumbnail juga di-cache di disk ("<asset>.thumb.enc") —
+        // sebelumnya hanya full yang disimpan, jadi tiap scroll daftar
+        // mengunduh ulang thumb yang sama. Kebijakan sama dengan full:
+        // tidak pernah divalidasi ulang (nama file baru = gambar baru).
+        val thumbFile = if (thumb) File(dataDir(context), "$assetPath.thumb.enc") else null
+        if (thumbFile != null && thumbFile.exists() && thumbFile.length() > 0) {
+            try {
+                ContentCrypto.decrypt(thumbFile.readBytes(), key)?.let { return it }
+            } catch (e: Exception) {
+                // Thumb lokal rusak: unduh ulang di bawah.
+            }
+        }
         val enc = try {
             // v1.1.35: daftarkan koneksi per assetPath supaya bisa
             // diputus saat item keluar layar (aturan unduh user).
@@ -866,6 +878,16 @@ object DataManager {
             } catch (e: Exception) {
                 // Tampil tetap jalan dari byte di memori; sync akan
                 // mengunduh ulang gambar ini nanti.
+            }
+        } else if (thumbFile != null) {
+            // Simpan thumb .enc supaya tampil berikutnya langsung lokal.
+            try {
+                if (!thumbFile.exists() || thumbFile.length() == 0L) {
+                    thumbFile.parentFile?.mkdirs()
+                    thumbFile.writeBytes(enc)
+                }
+            } catch (e: Exception) {
+                // Tampil tetap jalan dari byte di memori.
             }
         }
         return plain
@@ -1161,6 +1183,13 @@ object DataManager {
             Log.w(TAG, "sync dibatalkan: manifest.json.enc rusak / gagal dekripsi")
             return SyncResult(false, 0, 0, 0)
         }
+        // v1.1.36: potret SHA manifest LAMA sebelum ditimpa — JSON yang
+        // SHA-nya sama tidak perlu diunduh ulang (hemat data di jalur
+        // fallback GitHub). Dibaca di sini karena setelah tulis, cache
+        // manifest sudah berisi manifest baru.
+        val oldShaByJson = listOf("cerpen.json", "news.json", "komik.json")
+            .mapNotNull { name -> manifestEntry(context, name)?.first?.let { name to it } }
+            .toMap()
         val encDest = manifestEncFile(context)
         encDest.parentFile?.mkdirs()
         encDest.writeBytes(manifestEnc)
@@ -1190,7 +1219,10 @@ object DataManager {
         )
         for (jsonName in jsonLabels.keys) {
             report(0, 0, jsonLabels[jsonName] ?: "Mengunduh $jsonName…")
-            val text = fetchVerifiedJson(context, manifest, jsonName, key)
+            // v1.1.36: SHA tidak berubah -> pakai salinan lokal (hemat
+            // data); hanya yang berubah yang diunduh ulang.
+            val text = loadUnchangedJson(context, manifest, jsonName, key, oldShaByJson[jsonName])
+                ?: fetchVerifiedJson(context, manifest, jsonName, key)
             if (text == null) {
                 failed++
                 continue
@@ -1281,6 +1313,27 @@ object DataManager {
             }
         }
         return any
+    }
+
+    /**
+     * v1.1.36 (hemat data): bila SHA manifest baru SAMA dengan SHA manifest
+     * lama dan file .enc lokal masih terverifikasi, kembalikan teks lokal —
+     * jangan unduh ulang JSON yang isinya tidak berubah. Null bila berubah
+     * / lokal rusak (pemanggil mengunduh seperti biasa).
+     */
+    private fun loadUnchangedJson(
+        context: Context,
+        manifest: JSONObject,
+        jsonName: String,
+        key: ByteArray,
+        oldSha: String?
+    ): String? {
+        val entry = manifest.optJSONObject(jsonName) ?: return null
+        val sha = entry.optString("sha256", "")
+        val file = entry.optString("file", "")
+        if (sha.isEmpty() || file.isEmpty() || oldSha == null || sha != oldSha) return null
+        val enc = readEncBytes(context, file) ?: return null
+        return ContentCrypto.decryptVerified(enc, key, sha)
     }
 
     /**

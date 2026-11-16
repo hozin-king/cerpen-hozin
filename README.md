@@ -62,6 +62,10 @@ cd app
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Riwayat versi
+
+- **v1.1.29** — Cek versi aplikasi + gambar lewat CMS Worker (`hozinking.my.id`, fallback `workers.dev`), bukan GitHub — repo boleh privat tanpa merusak apa pun. Thumbnail + progressive load: daftar/detail/reader menampilkan thumbnail dulu, full menyusul otomatis di latar. Jalur fallback GitHub lama untuk konten tetap ada bila D1 gagal.
+
 ## Lisensi
 
 Konten cerpen original. Kode aplikasi bebas dipakai untuk belajar.

@@ -509,6 +509,12 @@ object CoverCache {
     }
 
     /**
+     * Kunci cache memori terpisah untuk thumb (resolusi thumb < full —
+     * jangan menimpa cache bitmap full dengan kunci yang sama).
+     */
+    private fun thumbKey(assetPath: String, reqWidth: Int) = "$assetPath@thumb@$reqWidth"
+
+    /**
      * Muat gambar ke ImageView secara asinkron (v1.1.5, lazy render):
      * placeholder langsung tampil, dekripsi+dekode di thread latar.
      * Tag view = assetPath; bila holder sudah di-recycle untuk item
@@ -525,8 +531,12 @@ object CoverCache {
      * DataManager.fetchCmsImageBytes, jadi tampil berikutnya lokal.
      * v1.1.35: bila view sebelumnya memuat gambar lain, lepaskan
      * hitungannya (bila tidak ada pemakai lagi, unduhannya diputus).
+     * v1.1.36: [loadFull] = false (daftar, reqWidth kecil) hanya memakai
+     * thumb — full TIDAK diunduh di latar (hemat data; full diunduh
+     * on-demand saat detail dibuka). Thumb yang sudah didekode juga
+     * di-cache di memori supaya scroll bolak-balik tidak mengunduh ulang.
      */
-    fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int) {
+    fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int, loadFull: Boolean = true) {
         val old = view.tag as? String
         if (old != null && old != assetPath) release(old)
         if (old != assetPath) acquire(assetPath)
@@ -546,19 +556,38 @@ object CoverCache {
                 }
                 return@execute
             }
+            // v1.1.36: thumb yang sudah didekode (memori) langsung tampil
+            // tanpa jaringan — scroll bolak-balik tidak mengunduh ulang.
+            val tKey = thumbKey(assetPath, reqWidth)
+            val cachedThumb = cache.get(tKey)
+            var thumbShown = false
+            if (cachedThumb != null && view.tag == assetPath) {
+                view.post {
+                    if (view.tag == assetPath) {
+                        stopAnimated(view)
+                        view.setImageDrawable(BitmapDrawable(context.resources, cachedThumb))
+                    }
+                }
+                thumbShown = true
+            }
             try {
-                val thumbBytes = DataManager.fetchCmsImageBytes(context, assetPath, thumb = true)
-                if (thumbBytes != null && view.tag == assetPath) {
-                    val thumbBmp = decodeBytes(thumbBytes, reqWidth)
-                    if (thumbBmp != null) {
-                        view.post {
-                            if (view.tag == assetPath) {
-                                stopAnimated(view)
-                                view.setImageDrawable(BitmapDrawable(context.resources, thumbBmp))
+                if (!thumbShown) {
+                    val thumbBytes = DataManager.fetchCmsImageBytes(context, assetPath, thumb = true)
+                    if (thumbBytes != null && view.tag == assetPath) {
+                        val thumbBmp = decodeBytes(thumbBytes, reqWidth)
+                        if (thumbBmp != null) {
+                            cache.put(tKey, thumbBmp)
+                            view.post {
+                                if (view.tag == assetPath) {
+                                    stopAnimated(view)
+                                    view.setImageDrawable(BitmapDrawable(context.resources, thumbBmp))
+                                }
                             }
                         }
                     }
                 }
+                // v1.1.36: daftar cukup thumb — jangan unduh full di latar.
+                if (!loadFull) return@execute
                 if (view.tag != assetPath) return@execute
                 val fullBytes = DataManager.fetchCmsImageBytes(context, assetPath, thumb = false)
                 if (fullBytes == null) return@execute

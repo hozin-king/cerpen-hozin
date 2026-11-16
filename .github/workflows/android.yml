@@ -78,6 +78,19 @@ jobs:
           echo "::add-mask::$CERPEN_KEYSTORE_PASSWORD"
           echo "CERPEN_KEYSTORE_PASSWORD=$CERPEN_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
 
+      - name: Run unit tests
+        # v1.1.30: CI tidak pernah menjalankan unit test — defect
+        # UpdateCheckTest (API GitHub lama, sudah tidak ada) lolos diam-diam
+        # di v1.1.29. Tes gagal = build gagal, sebelum APK dibuat.
+        run: |
+          cd app
+          GRADLE_BIN=$(ls /opt/hostedtoolcache/gradle/*/x64/bin/gradle 2>/dev/null | sort -V | tail -1)
+          if [ -n "$GRADLE_BIN" ]; then
+            "$GRADLE_BIN" testDebugUnitTest --stacktrace
+          else
+            ./gradlew testDebugUnitTest --stacktrace
+          fi
+
       - name: Build release APK
         run: |
           cd app
