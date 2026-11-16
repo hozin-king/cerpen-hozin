@@ -208,8 +208,27 @@ class NewsAdapter(
         // v1.1.36: daftar cukup thumb (loadFull = false) — full TIDAK
         // diunduh di latar; gambar yang belum ada juga diunduh per item
         // lewat tombol Unduh / buka detail.
+        // v1.1.37: images D1 berisi URL PENUH (bukan path lokal) — jangan
+        // tempel mentah ke "news/..." (dulu jadi "news/https://..." yang
+        // selalu 400). Normalisasi: URL CMS .enc -> assetPath CMS-nya;
+        // URL eksternal -> assetPath "news/img/<basename>" + URL itu
+        // sebagai fallback (thumb CMS belum ada untuk sebagian besar
+        // berita); format lama "img/xxx.jpg" tetap "news/img/xxx.jpg".
         if (!firstImage.isNullOrEmpty()) {
-            CoverCache.loadInto(h.itemView.context, "news/$firstImage", 300, h.thumb, R.drawable.news_placeholder, loadFull = false)
+            val thumbAsset: String
+            var fallback: String? = null
+            when {
+                firstImage.contains("/api/cerpen-img/") -> {
+                    thumbAsset = firstImage.substringAfter("/api/cerpen-img/").removeSuffix(".enc")
+                }
+                firstImage.startsWith("http") -> {
+                    val base = firstImage.substringAfterLast("/").substringBefore("?")
+                    thumbAsset = "news/img/$base"
+                    fallback = firstImage
+                }
+                else -> thumbAsset = "news/$firstImage"
+            }
+            CoverCache.loadInto(h.itemView.context, thumbAsset, 300, h.thumb, R.drawable.news_placeholder, loadFull = false, fallbackUrl = fallback)
         } else {
             CoverCache.clear(h.thumb, R.drawable.news_placeholder)
         }

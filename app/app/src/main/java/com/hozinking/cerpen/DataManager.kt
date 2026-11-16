@@ -66,6 +66,62 @@ data class SyncResult(
 /** Progress sync: (selesai, total, label tahap). Total 0 = belum diketahui. */
 typealias SyncProgress = (done: Int, total: Int, label: String) -> Unit
 
+/**
+ * Normalisasi body dari Worker `/api/cerpen-img/` (v1.1.37).
+ *
+ * AKAR MASALAH placeholder daftar: D1 mengembalikan kolom BLOB
+ * sebagai Array angka JS, dan `new Response(array)` di Worker
+ * men-stringify-nya jadi teks desimal koma ("255,35,253,...")
+ * — bukan byte .enc asli. Tanpa normalisasi, dekripsi GCM selalu
+ * gagal (InvalidTag) sehingga SEMUA gambar CMS (thumb + full)
+ * tidak pernah tampil; hanya gambar yang sudah tersimpan lokal
+ * (via sync GitHub raw) yang muncul. Terbukti: teks array
+ * cover_87.jpg.thumb.enc di-parse -> SHA-256 sama persis dengan
+ * D1 + terdekripsi jadi JPEG 213x320 yang valid.
+ *
+ * Fungsi murni di level file (bukan member DataManager) supaya bisa
+ * diuji unit JVM tanpa inisialisasi Android: body dikembalikan APA
+ * ADANYA bila bukan format array — jadi saat Worker diperbaiki ke
+ * byte mentah, fungsi ini otomatis jadi no-op. Format array dikenali
+ * secara ketat: setelah buang whitespace pinggir, seluruh isi hanya
+ * digit + koma, tanpa token kosong, tiap nilai 0..255. Byte .enc
+ * asli diawali IV acak sehingga praktis tidak mungkin lolos uji ini.
+ */
+internal fun decodeD1BlobBytes(body: ByteArray): ByteArray {
+    var start = 0
+    var end = body.size
+    while (start < end && body[start].isD1BlobSpace()) start++
+    while (end > start && body[end - 1].isD1BlobSpace()) end--
+    if (start >= end) return body
+    for (i in start until end) {
+        val b = body[i]
+        if (b != ','.code.toByte() && (b < '0'.code.toByte() || b > '9'.code.toByte())) return body
+    }
+    val out = ByteArrayOutputStream((end - start) / 3 + 16)
+    var cur = 0
+    var digits = 0
+    for (i in start until end) {
+        val b = body[i]
+        if (b == ','.code.toByte()) {
+            if (digits == 0 || cur > 255) return body
+            out.write(cur)
+            cur = 0
+            digits = 0
+        } else {
+            cur = cur * 10 + (b - '0'.code.toByte())
+            digits++
+            if (cur > 255 || digits > 3) return body
+        }
+    }
+    if (digits == 0 || cur > 255) return body
+    out.write(cur)
+    return out.toByteArray()
+}
+
+private fun Byte.isD1BlobSpace(): Boolean =
+    this == ' '.code.toByte() || this == '\n'.code.toByte() ||
+        this == '\r'.code.toByte() || this == '\t'.code.toByte()
+
 object DataManager {
 
     private const val TAG = "DataManager"
@@ -484,6 +540,21 @@ object DataManager {
     }
 
     /**
+     * GET satu URL di luar CMS (v1.1.37, fallback thumbnail berita):
+     * null bila gagal. Koneksi didaftarkan di [cmsFetchConns] supaya
+     * bisa diputus [cancelCmsImageFetch] seperti unduhan CMS — aturan
+     * unduh user tetap berlaku (hanya yang tampil di layar).
+     * TIDAK lewat [Hosts.withFallback] (host luar bukan CMS).
+     */
+    fun fetchExternalBytes(url: String, trackKey: String): ByteArray? {
+        return try {
+            fetchBytesOrThrow(url, trackKey)
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    /**
      * GET sekali; lempar IOException bila koneksi gagal (syarat
      * Hosts.withFallback), null bila server menjawab HTTP error
      * (404/429/dll). Tanpa ulangi — withFallback sudah memberi
@@ -854,13 +925,18 @@ object DataManager {
                 // Thumb lokal rusak: unduh ulang di bawah.
             }
         }
-        val enc = try {
+        val raw = try {
             // v1.1.35: daftarkan koneksi per assetPath supaya bisa
             // diputus saat item keluar layar (aturan unduh user).
             Hosts.withFallback(cmsImageUrl(assetPath, thumb)) { fetchBytesOrThrow(it, assetPath) }
         } catch (e: IOException) {
             return null
         } ?: return null
+        // v1.1.37: Worker mengembalikan BLOB D1 sebagai teks array
+        // desimal — normalisasi dulu ke byte .enc asli (no-op bila
+        // Worker sudah mengembalikan byte mentah). Yang disimpan ke
+        // disk di bawah adalah hasil normalisasi ini.
+        val enc = decodeD1BlobBytes(raw)
         val plain = if (!thumb) {
             val entry = manifestEntry(context, assetPath)
             if (entry != null) ContentCrypto.decryptVerifiedBytes(enc, key, entry.first)

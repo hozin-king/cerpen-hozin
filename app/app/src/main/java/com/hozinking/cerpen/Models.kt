@@ -535,8 +535,16 @@ object CoverCache {
      * thumb — full TIDAK diunduh di latar (hemat data; full diunduh
      * on-demand saat detail dibuka). Thumb yang sudah didekode juga
      * di-cache di memori supaya scroll bolak-balik tidak mengunduh ulang.
+     * v1.1.37: [fallbackUrl] — URL gambar asli di luar CMS (dipakai
+     * daftar berita: sebagian besar artikel tidak punya thumb CMS
+     * karena sync melewatkan artikel ber-image_url eksternal). Bila
+     * thumb CMS gagal (404), gambar luar diunduh + di-downscale di
+     * memori saja (TIDAK disimpan ke disk) lalu ditampilkan. Unduhan
+     * ini memakai koneksi yang sama-sama bisa diputus saat item keluar
+     * layar (aturan unduh user) dan TIDAK mengubah perilaku unduh
+     * gambar full (tetap on-demand di detail/reader).
      */
-    fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int, loadFull: Boolean = true) {
+    fun loadInto(context: Context, assetPath: String, reqWidth: Int, view: ImageView, placeholderRes: Int, loadFull: Boolean = true, fallbackUrl: String? = null) {
         val old = view.tag as? String
         if (old != null && old != assetPath) release(old)
         if (old != assetPath) acquire(assetPath)
@@ -581,6 +589,24 @@ object CoverCache {
                                 if (view.tag == assetPath) {
                                     stopAnimated(view)
                                     view.setImageDrawable(BitmapDrawable(context.resources, thumbBmp))
+                                }
+                            }
+                            thumbShown = true
+                        }
+                    }
+                }
+                // v1.1.37: thumb CMS tidak ada (404, berita ber-URL
+                // eksternal) — coba URL aslinya; tampil di memori saja.
+                if (!thumbShown && fallbackUrl != null && view.tag == assetPath) {
+                    val extBytes = DataManager.fetchExternalBytes(fallbackUrl, assetPath)
+                    if (extBytes != null && view.tag == assetPath) {
+                        val extBmp = decodeBytes(extBytes, reqWidth)
+                        if (extBmp != null) {
+                            cache.put(tKey, extBmp)
+                            view.post {
+                                if (view.tag == assetPath) {
+                                    stopAnimated(view)
+                                    view.setImageDrawable(BitmapDrawable(context.resources, extBmp))
                                 }
                             }
                         }
