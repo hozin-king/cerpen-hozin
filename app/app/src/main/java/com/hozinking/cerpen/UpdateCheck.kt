@@ -176,11 +176,13 @@ object UpdateCheck {
      * hasil cek versi harus selalu segar, jangan sajikan basi) + header
      * X-App-Version / X-App-Signer-Sha. HTTP 426 (version_locked)
      * menandai [versionLocked].
+     * v1.1.38: + header X-Device-Id; HTTP 403 app_blocked (perangkat
+     * dibekukan server) diperlakukan sama seperti 426.
      */
     var versionLocked = false
         private set
 
-    fun fetchText(url: String, appVersion: String? = null, signerSha: String? = null): String? {
+    fun fetchText(url: String, appVersion: String? = null, signerSha: String? = null, deviceId: String? = null): String? {
         versionLocked = false
         var conn: HttpURLConnection? = null
         try {
@@ -194,8 +196,9 @@ object UpdateCheck {
                 setRequestProperty("Pragma", "no-cache")
                 if (!appVersion.isNullOrBlank()) setRequestProperty("X-App-Version", appVersion)
                 if (!signerSha.isNullOrBlank()) setRequestProperty("X-App-Signer-Sha", signerSha)
+                if (!deviceId.isNullOrBlank()) setRequestProperty("X-Device-Id", deviceId)
             }
-            if (conn.responseCode == 426) {
+            if (conn.responseCode == 426 || conn.responseCode == 403) {
                 versionLocked = true
                 return null
             }

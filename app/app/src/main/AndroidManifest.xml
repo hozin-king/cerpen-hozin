@@ -17,13 +17,20 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.CerpenHozin">
 
+        <!-- v1.1.38: splash Lottie — launcher. MainActivity melepas
+             MAIN/LAUNCHER; intent-filter App Links tetap di MainActivity. -->
         <activity
-            android:name=".MainActivity"
+            android:name=".SplashActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
             <!-- v1.1.20: App Links — tautan berbagi https://hozinking.my.id/s/<token>.
                  autoVerify=true: sistem memverifikasi assetlinks.json di
                  domain; bila verifikasi gagal, tautan tetap bisa dibuka

@@ -128,6 +128,36 @@ object DataManager {
     private const val GITHUB_RAW_BASE =
         "https://raw.githubusercontent.com/hozin-king/cerpen-hozin/main/data"
 
+    /**
+     * Identitas aplikasi untuk gerbang versi server (v1.1.38) di jalur
+     * gambar CMS (endpoint cerpen-img). Diisi [setAppIdentity] — dipanggil
+     * MainActivity.onCreate (awal, sebelum unduh apa pun) dan syncContent.
+     */
+    private var appVersion: String = ""
+    private var appSignerSha: String = ""
+    private var appDeviceId: String = ""
+
+    fun setAppIdentity(context: Context) {
+        appVersion = BuildConfig.VERSION_NAME
+        appSignerSha = AppUpdate.installedSignerSha256(context) ?: ""
+        appDeviceId = CoinStore.deviceId(context)
+    }
+
+    /**
+     * True bila unduh gambar CMS terakhir ditolak server dengan 426
+     * (versi dikunci) atau 403 app_blocked (perangkat dibekukan).
+     * MainActivity mengecek ini di onResume untuk menampilkan dialog
+     * force-update — sync konten sendiri sudah menandai hal yang sama
+     * lewat CerpenApi.versionLocked, jadi ini hanya jalur pertahanan
+     * kedua (gambar diunduh di luar sync).
+     */
+    var cmsVersionLocked = false
+        private set
+
+    fun clearCmsVersionLocked() {
+        cmsVersionLocked = false
+    }
+
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /** Toast "Konten rusak" cukup sekali per proses agar tidak spam. */
@@ -548,7 +578,8 @@ object DataManager {
      */
     fun fetchExternalBytes(url: String, trackKey: String): ByteArray? {
         return try {
-            fetchBytesOrThrow(url, trackKey)
+            // Host luar — tanpa header identitas gerbang (bukan server CMS).
+            fetchBytesOrThrow(url, trackKey, sendIdentity = false)
         } catch (e: IOException) {
             null
         }
@@ -562,16 +593,29 @@ object DataManager {
      * [trackKey] (v1.1.35): bila diisi, koneksi didaftarkan selama
      * unduh supaya bisa diputus [cancelCmsImageFetch] saat item
      * keluar layar.
+     * [sendIdentity] (v1.1.38): true = jalur CMS — kirim header gerbang
+     * versi (X-App-Version + X-App-Signer-Sha + X-Device-Id); 426/403
+     * menandai [cmsVersionLocked]. false = host LUAR (fallback thumbnail
+     * berita, v1.1.37) — tanpa header, tanpa penanda kunci.
      */
-    private fun fetchBytesOrThrow(url: String, trackKey: String? = null): ByteArray? {
+    private fun fetchBytesOrThrow(url: String, trackKey: String? = null, sendIdentity: Boolean = true): ByteArray? {
         var conn: HttpURLConnection? = null
         try {
             conn = (URL(url).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
                 readTimeout = 20000
                 setRequestProperty("User-Agent", "CerpenHozin/1.1")
+                if (sendIdentity) {
+                    if (appVersion.isNotBlank()) setRequestProperty("X-App-Version", appVersion)
+                    if (appSignerSha.isNotBlank()) setRequestProperty("X-App-Signer-Sha", appSignerSha)
+                    if (appDeviceId.isNotBlank()) setRequestProperty("X-Device-Id", appDeviceId)
+                }
             }
             if (trackKey != null) cmsFetchConns[trackKey] = conn
+            if (conn.responseCode == 426 || (sendIdentity && conn.responseCode == 403)) {
+                cmsVersionLocked = true
+                return null
+            }
             if (conn.responseCode != HttpURLConnection.HTTP_OK) return null
             return conn.inputStream.readBytes()
         } catch (e: IOException) {
@@ -675,8 +719,11 @@ object DataManager {
         onProgress: SyncProgress? = null,
         onDone: (SyncResult) -> Unit
     ) {
-        // Identitas aplikasi untuk header X-App-Version / X-App-Signer-Sha.
-        CerpenApi.setAppIdentity(BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(context))
+        // Identitas aplikasi untuk header gerbang versi (X-App-Version /
+        // X-App-Signer-Sha / X-Device-Id) — dipakai /api/c/* (CerpenApi)
+        // dan endpoint gambar CMS (fetchBytesOrThrow).
+        setAppIdentity(context)
+        CerpenApi.setAppIdentity(BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(context), CoinStore.deviceId(context))
         Thread {
             val raw = try {
                 runD1Sync(context, onProgress)

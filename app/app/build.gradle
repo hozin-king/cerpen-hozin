@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 43
-        versionName = "1.1.37"
+        versionCode = 44
+        versionName = "1.1.38"
         // Argumen CMake untuk native lib `contentguard` (kunci konten).
         // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
         // atas: CmakeOptions hanya punya path/version, `arguments` hanya
@@ -117,6 +117,8 @@ dependencies {
     // v1.1.18: coret (~~teks~~) + warna HTML (<font color="#...">).
     implementation("io.noties.markwon:ext-strikethrough:4.6.2")
     implementation("io.noties.markwon:html:4.6.2")
+    // v1.1.38: animasi logo Lottie di splash screen (looping, JSON <100KB).
+    implementation("com.airbnb.android:lottie:6.4.0")
 
     // Unit test: org.json asli (android.jar hanya berisi stub yang melempar
     // "Stub!") agar NewsDetailsFormatterTest bisa jalan di JVM.

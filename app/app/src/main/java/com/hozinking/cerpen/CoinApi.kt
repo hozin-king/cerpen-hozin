@@ -218,6 +218,9 @@ object CoinApi {
             conn.readTimeout = 15000
             conn.setRequestProperty("User-Agent", "CerpenHozin/" + BuildConfig.VERSION_NAME)
             conn.setRequestProperty("Accept", "application/json")
+            // v1.1.38: header gerbang versi (versi + signer + device-id) —
+            // server menolak auth/koin tanpa identitas lengkap.
+            AppIdentity.addHeaders(ctx, conn)
             CoinStore.session(ctx)?.let { s ->
                 if (s.isNotBlank()) conn.setRequestProperty("Cookie", "cms_user=$s")
             }

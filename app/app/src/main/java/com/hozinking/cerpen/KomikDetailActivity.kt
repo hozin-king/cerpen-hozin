@@ -38,6 +38,8 @@ class KomikDetailActivity : AppCompatActivity() {
     private lateinit var offlineLabel: TextView
 
     private var komik: Komik? = null
+    /** v1.1.38: posisi scroll daftar episode (persisten, per komik). */
+    private var episodeScrollGuard: ListScrollGuard? = null
     private var downloading = false
     private val downloadingEpisodes = HashSet<Int>()
 
@@ -88,6 +90,12 @@ class KomikDetailActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** v1.1.38: simpan posisi scroll daftar episode saat halaman ditinggalkan. */
+    override fun onPause() {
+        episodeScrollGuard?.save()
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
         applyThemeAndFont()
@@ -96,6 +104,7 @@ class KomikDetailActivity : AppCompatActivity() {
             refreshDownloadState()
             refreshContinueButton()
             updateBookmarkButton()
+            episodeScrollGuard?.requestRestore()
         }
         // v1.1.30: validasi ulang unlock dari server tiap kembali (bila
         // online) — tampilan kunci di-refresh dari /me, bukan cache lama.
@@ -104,6 +113,7 @@ class KomikDetailActivity : AppCompatActivity() {
                 episodeList.adapter = episodeAdapter(it)
                 refreshDownloadState()
                 refreshContinueButton()
+                episodeScrollGuard?.requestRestore()
             }
         }
     }
@@ -133,6 +143,14 @@ class KomikDetailActivity : AppCompatActivity() {
             CoverCache.clear(cover, R.drawable.cover_placeholder)
         }
         episodeList.adapter = episodeAdapter(k)
+        // v1.1.38: penjaga posisi scroll daftar episode (dibuat sekali).
+        if (episodeScrollGuard == null) {
+            episodeScrollGuard = ListScrollGuard(
+                getSharedPreferences("scroll_state", MODE_PRIVATE),
+                "episodes_komik_${k.id}", episodeList
+            ).also { it.attach() }
+        }
+        episodeScrollGuard?.requestRestore()
         refreshDownloadState()
         refreshContinueButton()
         downloadButton.setOnClickListener { downloadWholeKomik() }
@@ -229,6 +247,9 @@ class KomikDetailActivity : AppCompatActivity() {
             downloadButton.isEnabled = true
             refreshDownloadState()
             episodeList.adapter = episodeAdapter(k)
+            // v1.1.38: adapter diganti setelah unduh — restore tanpa
+            // reset flag (user mungkin sudah menggulir saat mengunduh).
+            episodeList.post { episodeScrollGuard?.restore() }
             Toast.makeText(
                 this,
                 if (result.failed == 0) "Komik tersimpan offline (${result.downloaded} panel baru)"

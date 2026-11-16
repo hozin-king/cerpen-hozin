@@ -122,6 +122,14 @@ class MainActivity : AppCompatActivity() {
     private var lastMixedFiltered: List<CerbungItem> = emptyList()
     /** v1.1.32: server mengunci versi ini (HTTP 426) — sync diblokir sampai update. */
     private var serverVersionLocked = false
+    /** v1.1.38: posisi scroll persisten per daftar (lihat ScrollStateStore).
+     * Disimpan di SharedPreferences "scroll_state" (kunci per daftar) —
+     * bertahan setelah aplikasi ditutup. [userScrolledKeys] = daftar yang
+     * sudah digulir user sejak data terakhir dimuat — restore dilewati
+     * untuk daftar itu (jangan menarik kembali posisi lama saat user
+     * sudah menggulir sendiri). */
+    private val scrollPrefs by lazy { getSharedPreferences("scroll_state", MODE_PRIVATE) }
+    private val userScrolledKeys = HashSet<String>()
     /** Id item terbaru per daftar (badge NEW); dihitung tiap loadContent. */
     private var newestCerpenId: String? = null
     private var newestKomikId: String? = null
@@ -148,6 +156,12 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // v1.1.38: identitas gerbang versi untuk gambar CMS (sebelum unduh
+        // apa pun) + pulihkan penanda kunci versi dari sesi sebelumnya
+        // (hanya berlaku untuk versi ini — update aplikasi menghapusnya).
+        DataManager.setAppIdentity(this)
+        serverVersionLocked = isVersionLockedPersisted()
 
         root = findViewById(R.id.main_root)
         appTitle = findViewById(R.id.app_title)
@@ -232,6 +246,12 @@ class MainActivity : AppCompatActivity() {
         seriesBookmarkList.layoutManager = LinearLayoutManager(this)
         newsList.layoutManager = LinearLayoutManager(this)
         komikList.layoutManager = LinearLayoutManager(this)
+
+        // v1.1.38: penjaga posisi scroll — tandai guliran user + simpan
+        // posisi saat daftar berhenti (idle). Restore dijadwalkan tiap
+        // adapter baru dipasang (apply*/showHistoryAndBookmarks/showTab).
+        listOf(cerpenList, newsList, komikList, historyList, bookmarkList, seriesBookmarkList)
+            .forEach { attachScrollGuard(it) }
 
         // v1.1.5: ukuran tetap agar recycling aktif (daftar 916 berita).
         cerpenList.setHasFixedSize(true)
@@ -334,6 +354,12 @@ class MainActivity : AppCompatActivity() {
             updatePrefs.edit().remove("manual_check_requested").apply()
             checkForAppUpdateManual()
         }
+        // v1.1.38: unduh gambar di luar sync juga bisa kena kunci versi
+        // (DataManager.cmsVersionLocked) — tampilkan dialog paksa.
+        if (DataManager.cmsVersionLocked) {
+            serverVersionLocked = true
+            setVersionLockedPersisted(true)
+        }
         applyThemeAndFont()
         showContinueReading()
         showHistoryAndBookmarks()
@@ -361,6 +387,12 @@ class MainActivity : AppCompatActivity() {
             refreshCoinChip()
             refreshDrawerHeader()
         }
+    }
+
+    /** v1.1.38: simpan posisi semua daftar saat aplikasi ditinggalkan. */
+    override fun onPause() {
+        saveAllScroll()
+        super.onPause()
     }
 
     /** Terapkan tema + ukuran font global ke layar ini (dipanggil tiap resume). */
@@ -476,6 +508,8 @@ class MainActivity : AppCompatActivity() {
         // pindah ke tab visible pertama (fail-closed bila semua hidden).
         val visible = visibleTabIndices()
         val effective = if (tab in visible) tab else visible.firstOrNull() ?: 0
+        // v1.1.38: simpan posisi ScrollView tab lama sebelum pindah.
+        ScrollStateStore.saveScrollY(scrollPrefs, "main_$selectedTab", mainScroll.scrollY)
         selectedTab = effective
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         cerpenTab.visibility = if (effective == 0) View.VISIBLE else View.GONE
@@ -483,6 +517,98 @@ class MainActivity : AppCompatActivity() {
         komikTab.visibility = if (effective == 2) View.VISIBLE else View.GONE
         koleksiTab.visibility = if (effective == 3) View.VISIBLE else View.GONE
         dockItems.forEach { styleDockItem(it, it.tab == effective, palette) }
+        // v1.1.38: kembalikan posisi scroll tab yang baru tampil (daftar
+        // + ScrollView) — restore dilewati bila user sudah menggulir.
+        restoreTabScroll()
+    }
+
+    // ============ POSISI SCROLL PERSISTEN (v1.1.38) ============
+    // Perintah user 16 Nov 2026: posisi scroll tersimpan persis per daftar
+    // (Cerita, Berita, Komik, Koleksi) — kembali saat pindah tab / keluar
+    // lalu kembali, termasuk setelah aplikasi ditutup (SharedPreferences).
+    // Daftar yang sedang terfilter (query tidak kosong) TIDAK disimpan /
+    // di-restore — posisi tersimpan milik daftar penuh; saat query
+    // dibersihkan, daftar penuh kembali dan restore berlaku lagi.
+    private fun scrollKeyFor(list: RecyclerView): String = when (list) {
+        cerpenList -> "cerpen"
+        newsList -> "news"
+        komikList -> "komik"
+        historyList -> "history"
+        bookmarkList -> "bookmark"
+        seriesBookmarkList -> "series_bookmark"
+        else -> "unknown"
+    }
+
+    private fun scrollQueryFor(key: String): String = when (key) {
+        "cerpen" -> query
+        "news" -> newsQuery
+        "komik" -> komikQuery
+        else -> ""
+    }
+
+    private fun saveListScroll(list: RecyclerView) {
+        val key = scrollKeyFor(list)
+        if (key == "unknown") return
+        if (scrollQueryFor(key).isNotEmpty()) return
+        val lm = list.layoutManager as? LinearLayoutManager ?: return
+        ScrollStateStore.capture(lm)?.let { ScrollStateStore.save(scrollPrefs, key, it) }
+    }
+
+    private fun restoreListScroll(list: RecyclerView) {
+        val key = scrollKeyFor(list)
+        if (key == "unknown") return
+        if (key in userScrolledKeys) return
+        if (scrollQueryFor(key).isNotEmpty()) return
+        // Jangan menarik posisi saat user sedang menggulir (drag/fling).
+        if (list.scrollState != RecyclerView.SCROLL_STATE_IDLE) return
+        val lm = list.layoutManager as? LinearLayoutManager ?: return
+        val count = list.adapter?.itemCount ?: 0
+        val saved = ScrollStateStore.load(scrollPrefs, key) ?: return
+        val pos = ScrollStateStore.clamp(saved, count) ?: return
+        ScrollStateStore.apply(lm, pos)
+    }
+
+    /** Daftar tab yang sedang tampil + ScrollView-nya. */
+    private fun restoreTabScroll() {
+        val lists = when (selectedTab) {
+            0 -> listOf(cerpenList)
+            1 -> listOf(newsList)
+            2 -> listOf(komikList)
+            else -> listOf(historyList, bookmarkList, seriesBookmarkList)
+        }
+        lists.forEach { list -> list.post { restoreListScroll(list) } }
+        mainScroll.post {
+            val y = ScrollStateStore.loadScrollY(scrollPrefs, "main_$selectedTab")
+            if (y > 0) mainScroll.scrollTo(0, y)
+        }
+    }
+
+    /** Simpan semua daftar + ScrollView (dipanggil onPause). */
+    private fun saveAllScroll() {
+        listOf(cerpenList, newsList, komikList, historyList, bookmarkList, seriesBookmarkList)
+            .forEach { saveListScroll(it) }
+        ScrollStateStore.saveScrollY(scrollPrefs, "main_$selectedTab", mainScroll.scrollY)
+    }
+
+    /** Pasang penjaga scroll ke satu daftar: tandai guliran user + simpan saat berhenti. */
+    private fun attachScrollGuard(list: RecyclerView) {
+        list.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                val key = scrollKeyFor(recyclerView)
+                if (key == "unknown") return
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    userScrolledKeys.add(key)
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    saveListScroll(recyclerView)
+                }
+            }
+        })
+    }
+
+    /** Setelah adapter baru dipasang: izinkan restore + jadwalkan (setelah layout). */
+    private fun requestListRestore(list: RecyclerView) {
+        userScrolledKeys.remove(scrollKeyFor(list))
+        list.post { restoreListScroll(list) }
     }
 
     private fun styleDockItem(item: DockItem, selected: Boolean, palette: ThemePalette) {
@@ -653,6 +779,8 @@ class MainActivity : AppCompatActivity() {
             filtered, { openNewsDetail(it) }, palette, scale,
             onDownload = { a, pos -> downloadNews(a, pos) }
         )
+        // v1.1.38: kembalikan posisi scroll setelah adapter baru dipasang.
+        requestListRestore(newsList)
         loadListSocialStats(newsStatsItems(filtered)) { m ->
             (newsList.adapter as? NewsAdapter)?.updateSocialStats(m)
         }
@@ -671,6 +799,8 @@ class MainActivity : AppCompatActivity() {
             onDownload = { k, pos -> downloadKomik(k, pos) },
             newestId = newestKomikId
         )
+        // v1.1.38: kembalikan posisi scroll setelah adapter baru dipasang.
+        requestListRestore(komikList)
         loadSeriesSocialStats(komikStatsItems(filtered)) { m ->
             (komikList.adapter as? KomikAdapter)?.updateSocialStats(m)
         }
@@ -759,6 +889,8 @@ class MainActivity : AppCompatActivity() {
             newestCerpenId = newestCerpenId,
             newestKomikId = newestKomikId
         )
+        // v1.1.38: kembalikan posisi scroll setelah adapter baru dipasang.
+        requestListRestore(cerpenList)
         loadSeriesSocialStats(mixedStatsItems(mixed)) { m ->
             (cerpenList.adapter as? CerbungAdapter)?.updateSocialStats(m)
         }
@@ -843,6 +975,10 @@ class MainActivity : AppCompatActivity() {
             val scale = ThemeHelper.fontScale(this)
             seriesBookmarkList.adapter = SeriesBookmarkAdapter(saved, palette, scale)
         }
+        // v1.1.38: kembalikan posisi scroll ketiga daftar Koleksi.
+        requestListRestore(historyList)
+        requestListRestore(bookmarkList)
+        requestListRestore(seriesBookmarkList)
     }
 
     private fun openDetail(cerpen: Cerpen) {
@@ -1151,10 +1287,19 @@ class MainActivity : AppCompatActivity() {
             hideSyncProgress()
             if (result.versionLocked) {
                 serverVersionLocked = true
+                setVersionLockedPersisted(true)
                 showVersionLockedDialog()
-            } else if (result.changed) {
-                loadContent()
-                Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
+            } else {
+                // v1.1.38: sync berhasil tanpa kunci (dan tidak offline) =
+                // penanda kunci lama dihapus.
+                if (!result.offline) {
+                    serverVersionLocked = false
+                    setVersionLockedPersisted(false)
+                }
+                if (result.changed) {
+                    loadContent()
+                    Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -1181,14 +1326,23 @@ class MainActivity : AppCompatActivity() {
             hideSyncProgress()
             if (result.versionLocked) {
                 serverVersionLocked = true
+                setVersionLockedPersisted(true)
                 showVersionLockedDialog()
-            } else if (result.changed) {
-                loadContent()
-                Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
             } else {
-                // v1.1.35: jangan lagi "Sudah terbaru / tidak ada
-                // internet" — dua keadaan itu pesannya dipisah.
-                Toast.makeText(this, syncUnchangedToast(result), Toast.LENGTH_SHORT).show()
+                // v1.1.38: sync berhasil tanpa kunci (dan tidak offline) =
+                // penanda kunci lama dihapus.
+                if (!result.offline) {
+                    serverVersionLocked = false
+                    setVersionLockedPersisted(false)
+                }
+                if (result.changed) {
+                    loadContent()
+                    Toast.makeText(this, "Konten diperbarui", Toast.LENGTH_SHORT).show()
+                } else {
+                    // v1.1.35: jangan lagi "Sudah terbaru / tidak ada
+                    // internet" — dua keadaan itu pesannya dipisah.
+                    Toast.makeText(this, syncUnchangedToast(result), Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -1217,7 +1371,8 @@ class MainActivity : AppCompatActivity() {
             val latestJson = try {
                 Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) {
                     UpdateCheck.fetchText(
-                        it, BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(this)
+                        it, BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(this),
+                        CoinStore.deviceId(this)
                     )
                 }
             } catch (e: IOException) {
@@ -1227,6 +1382,7 @@ class MainActivity : AppCompatActivity() {
             if (UpdateCheck.versionLocked) {
                 runOnUiThread {
                     serverVersionLocked = true
+                    setVersionLockedPersisted(true)
                     showVersionLockedDialog()
                 }
                 return@Thread
@@ -1299,7 +1455,8 @@ class MainActivity : AppCompatActivity() {
             val latestJson = try {
                 Hosts.withFallback(UpdateCheck.LATEST_RELEASE_URL) {
                     UpdateCheck.fetchText(
-                        it, BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(this)
+                        it, BuildConfig.VERSION_NAME, AppUpdate.installedSignerSha256(this),
+                        CoinStore.deviceId(this)
                     )
                 }
             } catch (e: IOException) {
@@ -1309,6 +1466,7 @@ class MainActivity : AppCompatActivity() {
             if (UpdateCheck.versionLocked) {
                 runOnUiThread {
                     serverVersionLocked = true
+                    setVersionLockedPersisted(true)
                     showVersionLockedDialog()
                 }
                 return@Thread
@@ -1446,12 +1604,31 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    // ============ PENANDA KUNCI VERSI PERSISTEN (v1.1.38) ============
+    // serverVersionLocked harus bertahan saat proses mati / kembali dari
+    // browser — kalau tidak, dialog paksa hilang dan user bisa memakai
+    // versi lama. Disimpan bersama nama versinya: update aplikasi
+    // otomatis menghapus penanda (versi baru belum tentu terkunci).
+    private fun isVersionLockedPersisted(): Boolean =
+        updatePrefs.getBoolean("server_version_locked", false) &&
+            updatePrefs.getString("server_version_locked_for", "") == BuildConfig.VERSION_NAME
+
+    private fun setVersionLockedPersisted(locked: Boolean) {
+        updatePrefs.edit()
+            .putBoolean("server_version_locked", locked)
+            .putString("server_version_locked_for", BuildConfig.VERSION_NAME)
+            .apply()
+    }
+
     /**
      * v1.1.32: server mengunci versi ini (HTTP 426 version_locked) —
      * dialog paksa yang tidak bisa ditutup/dilewati (GlassDialog selalu
      * non-cancelable); sync diblokir sampai update. Tombol membuka
      * halaman rilis — tanpa apkUrl yang pasti dari respons 426, unduh
      * dalam aplikasi tidak bisa dijamin, jadi pakai fallback browser.
+     * v1.1.38: dialog tampil LAGI saat di-dismiss selama kunci masih
+     * berlaku — GlassDialog selalu dismiss setelah tombol diklik, jadi
+     * tanpa ini user bisa kembali ke aplikasi tanpa dialog.
      */
     private fun showVersionLockedDialog() {
         if (updateDialog?.isShowing == true) return
@@ -1467,7 +1644,12 @@ class MainActivity : AppCompatActivity() {
                 AppUpdate.openInBrowser(this, UpdateCheck.RELEASES_PAGE_URL)
             }
         )
-        dialog.setOnDismissListener { updateDialog = null }
+        dialog.setOnDismissListener {
+            updateDialog = null
+            if (serverVersionLocked && !isFinishing && !isDestroyed) {
+                showVersionLockedDialog()
+            }
+        }
         updateDialog = dialog
         dialog.show()
     }

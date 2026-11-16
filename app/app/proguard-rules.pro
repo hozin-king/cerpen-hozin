@@ -9,3 +9,8 @@
 -keep class com.hozinking.cerpen.ContentCrypto { *; }
 -keep class com.hozinking.cerpen.DataManager { *; }
 -keepclasseswithmembernames class * { native <methods>; }
+
+# v1.1.38: Lottie 6.4.0 membawa okio 1.17.6 yang mereferensikan
+# javax.annotation.Nullable (anotasi JSR-305, tidak ada di classpath) —
+# R8 gagal "Missing class" tanpa ini. Anotasi saja, aman diabaikan.
+-dontwarn javax.annotation.Nullable

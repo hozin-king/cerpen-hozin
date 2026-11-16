@@ -33,24 +33,29 @@ object CerpenApi {
     private const val READ_TIMEOUT_MS = 60000
 
     /**
-     * Identitas aplikasi untuk header X-App-Version / X-App-Signer-Sha
-     * (v1.1.32 — kebijakan kunci versi server). Diisi DataManager dari
-     * BuildConfig + PackageManager sebelum sync; kosong = header dilewati.
+     * Identitas aplikasi untuk header X-App-Version / X-App-Signer-Sha /
+     * X-App-Device-Id (v1.1.32 + v1.1.38 — kebijakan kunci versi server).
+     * Diisi DataManager dari BuildConfig + PackageManager + CoinStore
+     * sebelum sync; kosong = header dilewati.
      */
     var appVersion: String = ""
         private set
     var appSignerSha: String = ""
         private set
+    var appDeviceId: String = ""
+        private set
 
-    fun setAppIdentity(version: String, signerSha: String?) {
+    fun setAppIdentity(version: String, signerSha: String?, deviceId: String? = null) {
         appVersion = version
         appSignerSha = signerSha ?: ""
+        if (deviceId != null) appDeviceId = deviceId
     }
 
     /**
      * True bila request sync terakhir ditolak server dengan HTTP 426
-     * {error:"version_locked"} — versi ini dikunci, pemanggil TIDAK
-     * boleh fallback ke GitHub dan harus menampilkan dialog force-update.
+     * {error:"app_update_required"} atau 403 {error:"app_blocked"} —
+     * versi ini dikunci / perangkat dibekukan, pemanggil TIDAK boleh
+     * fallback ke GitHub dan harus menampilkan dialog force-update.
      * Di-reset tiap fetchManifest/fetchAll.
      */
     var versionLocked = false
@@ -100,6 +105,9 @@ object CerpenApi {
      * HTTP error (server menjawab) tetap mengulang host yang sama.
      * v1.1.32: kirim header X-App-Version + X-App-Signer-Sha; HTTP 426
      * (version_locked) menandai [versionLocked] dan TIDAK diulangi.
+     * v1.1.38: + header X-Device-Id; HTTP 403 app_blocked (perangkat
+     * dibekukan server karena percobaan bypass) diperlakukan sama
+     * seperti 426 — kunci total, tanpa fallback.
      */
     private fun fetchBytes(url: String): ByteArray? {
         var connectionFailed = false
@@ -113,8 +121,9 @@ object CerpenApi {
                     setRequestProperty("User-Agent", "CerpenHozin/1.1")
                     if (appVersion.isNotBlank()) setRequestProperty("X-App-Version", appVersion)
                     if (appSignerSha.isNotBlank()) setRequestProperty("X-App-Signer-Sha", appSignerSha)
+                    if (appDeviceId.isNotBlank()) setRequestProperty("X-Device-Id", appDeviceId)
                 }
-                if (conn.responseCode == 426) {
+                if (conn.responseCode == 426 || conn.responseCode == 403) {
                     versionLocked = true
                     return null
                 }

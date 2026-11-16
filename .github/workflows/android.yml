@@ -64,6 +64,16 @@ jobs:
           echo "::add-mask::$KEY_B64"
           echo "CERPEN_CONTENT_KEY=$KEY_B64" >> "$GITHUB_ENV"
 
+      - name: Run unit tests
+        run: |
+          cd app
+          GRADLE_BIN=$(ls /opt/hostedtoolcache/gradle/*/x64/bin/gradle 2>/dev/null | sort -V | tail -1)
+          if [ -n "$GRADLE_BIN" ]; then
+            "$GRADLE_BIN" testDebugUnitTest --stacktrace
+          else
+            ./gradlew testDebugUnitTest --stacktrace
+          fi
+
       - name: Prepare release keystore
         env:
           CERPEN_KEYSTORE_BASE64: ${{ secrets.CERPEN_KEYSTORE_BASE64 }}
@@ -90,13 +100,9 @@ jobs:
             ./gradlew assembleRelease --stacktrace
           fi
 
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: CerpenHozin-release
-          path: app/app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-
+      # v1.1.38: step upload-artifact DIHAPUS — kuota storage Actions
+      # akun penuh sejak 9 Nov 2026 ("Artifact storage quota has been
+      # hit"); APK disalurkan lewat GitHub Release di bawah.
       - name: Create version tag
         if: github.ref == 'refs/heads/main'
         run: |

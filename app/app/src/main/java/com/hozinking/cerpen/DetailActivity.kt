@@ -37,6 +37,8 @@ class DetailActivity : AppCompatActivity() {
     private lateinit var offlineLabel: TextView
 
     private var cerpen: Cerpen? = null
+    /** v1.1.38: posisi scroll daftar episode (persisten, per cerita). */
+    private var episodeScrollGuard: ListScrollGuard? = null
     private var downloading = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,6 +88,12 @@ class DetailActivity : AppCompatActivity() {
         }.start()
     }
 
+    /** v1.1.38: simpan posisi scroll daftar episode saat halaman ditinggalkan. */
+    override fun onPause() {
+        episodeScrollGuard?.save()
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
         applyThemeAndFont()
@@ -95,6 +103,7 @@ class DetailActivity : AppCompatActivity() {
             val scale = ThemeHelper.fontScale(this)
             episodeList.adapter = episodeAdapter(it)
             refreshContinueButton()
+            episodeScrollGuard?.requestRestore()
             updateBookmarkButton()
         }
         // v1.1.30: validasi ulang unlock dari server tiap kembali (bila
@@ -103,6 +112,7 @@ class DetailActivity : AppCompatActivity() {
             cerpen?.let {
                 episodeList.adapter = episodeAdapter(it)
                 refreshContinueButton()
+                episodeScrollGuard?.requestRestore()
             }
         }
     }
@@ -158,6 +168,14 @@ class DetailActivity : AppCompatActivity() {
             CoverCache.clear(cover, R.drawable.cover_placeholder)
         }
         episodeList.adapter = episodeAdapter(c)
+        // v1.1.38: penjaga posisi scroll daftar episode (dibuat sekali).
+        if (episodeScrollGuard == null) {
+            episodeScrollGuard = ListScrollGuard(
+                getSharedPreferences("scroll_state", MODE_PRIVATE),
+                "episodes_cerpen_${c.id}", episodeList
+            ).also { it.attach() }
+        }
+        episodeScrollGuard?.requestRestore()
         refreshDownloadState()
         refreshContinueButton()
         downloadButton.setOnClickListener { downloadCover() }
