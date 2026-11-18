@@ -13,25 +13,6 @@ android {
         targetSdk = 34
         versionCode = 45
         versionName = "1.1.39"
-        // Argumen CMake untuk native lib `contentguard` (kunci konten).
-        // HARUS di sini (defaultConfig), bukan di blok externalNativeBuild
-        // atas: CmakeOptions hanya punya path/version, `arguments` hanya
-        // ada di ExternalNativeCmakeOptions (per-varian).
-        externalNativeBuild {
-            cmake {
-                arguments "-DCONTENT_KEY_MASKED=${rootProject.ext.contentKeyMaskedHex}",
-                    "-DCONTENT_KEY_MASK=${rootProject.ext.contentKeyMaskHex}"
-            }
-        }
-    }
-
-    // Native lib `contentguard` (kunci konten). NDK 25.2.
-    ndkVersion = "25.2.9519653"
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-        }
     }
 
     // Signing rilis: keystore PERSISTEN (bukan debug keystore runner).
@@ -105,6 +86,42 @@ android {
         }
     }
 }
+
+// Native lib `contentguard` (kunci konten) — implementasi Rust
+// (PoC, ganti C++/CMake). Lihat src/main/rust/contentguard/.
+// Gradle menghitung masked key + mask (app/build.gradle, TIDAK
+// berubah) lalu task ini meneruskannya sebagai env ke cargo
+// (build.rs). Output .so diregenerasi tiap build ke
+// src/main/jniLibs/arm64-v8a/ (JANGAN di-commit — .gitignore).
+// Hanya arm64-v8a di PoC ini (target android aarch64).
+tasks.register("buildRustContentGuard", Exec) {
+    doFirst {
+        def ndkHome = null
+        def fromEnv = System.getenv("ANDROID_NDK_HOME")
+        if (fromEnv != null && !fromEnv.trim().isEmpty()) {
+            ndkHome = new File(fromEnv.trim())
+        } else {
+            def pinned = new File(android.sdkDirectory, "ndk/25.2.9519653")
+            if (pinned.exists()) ndkHome = pinned
+        }
+        if (ndkHome == null || !ndkHome.exists()) {
+            throw new GradleException("NDK tidak ditemukan. Set ANDROID_NDK_HOME atau pasang ndk;25.2.9519653.")
+        }
+        def clang = new File(ndkHome, "toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang")
+        def llvmAr = new File(ndkHome, "toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar")
+        if (!clang.exists()) throw new GradleException("clang NDK tidak ada: ${clang}")
+        if (!llvmAr.exists()) throw new GradleException("llvm-ar NDK tidak ada: ${llvmAr}")
+        workingDir = file("src/main/rust/contentguard")
+        environment("CONTENT_KEY_MASKED", rootProject.ext.contentKeyMaskedHex)
+        environment("CONTENT_KEY_MASK", rootProject.ext.contentKeyMaskHex)
+        environment("CARGO_TARGET_DIR", new File(buildDir, "rust-contentguard/target").absolutePath)
+        environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER", clang.absolutePath)
+        environment("CARGO_TARGET_AARCH64_LINUX_ANDROID_AR", llvmAr.absolutePath)
+        commandLine("bash", "build-android.sh")
+    }
+}
+// Fail-closed: APK tidak pernah di-build tanpa lib contentguard.
+tasks.named("preBuild") { dependsOn("buildRustContentGuard") }
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")

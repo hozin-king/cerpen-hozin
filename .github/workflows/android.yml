@@ -52,6 +52,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x app/gradlew
 
+      - name: Install Rust toolchain
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup target add aarch64-linux-android
+          cargo --version && rustc --version
+
       - name: Derive content key
         env:
           CERPEN_CONTENT_KEY: ${{ secrets.CERPEN_CONTENT_KEY }}
@@ -99,6 +107,41 @@ jobs:
             echo "No cached Gradle found, falling back to wrapper"
             ./gradlew assembleRelease --stacktrace
           fi
+
+      # PoC rust-contentguard — verifikasi (HANYA di branch PoC; hapus
+      # step ini bila PoC di-merge). Kunci HANYA dipakai in-memory di
+      # skrip ini; yang dicetak hanya boolean + ukuran (bukan nilai kunci).
+      - name: Verify Rust contentguard (PoC)
+        if: github.ref == 'refs/heads/rust-contentguard-poc'
+        env:
+          CERPEN_CONTENT_KEY: ${{ env.CERPEN_CONTENT_KEY }}
+        run: |
+          APK="app/app/build/outputs/apk/release/app-release.apk"
+          sha256sum "$APK"
+          python3 - <<'PY'
+          import base64, os, sys, zipfile
+          MASK = bytes([0x3C, 0xA7, 0x19, 0xE2, 0x6B, 0xD4, 0x08, 0x5F])
+          apk = "app/app/build/outputs/apk/release/app-release.apk"
+          size = os.path.getsize(apk)
+          print("apk_size:", size)
+          print("apk_leq_5MB:", size <= 5_000_000)
+          with zipfile.ZipFile(apk) as z:
+              names = z.namelist()
+              print("has_arm64_lib:", "lib/arm64-v8a/libcontentguard.so" in names)
+              data = z.read("lib/arm64-v8a/libcontentguard.so")
+          print("rust_so_size:", len(data))
+          raw = base64.b64decode(os.environ["CERPEN_CONTENT_KEY"])
+          assert len(raw) == 32
+          masked = bytes(b ^ MASK[i % len(MASK)] for i, b in enumerate(raw))
+          print("masked_bytes_found:", masked in data)
+          print("raw_key_found:", raw in data)
+          ok = size <= 5_000_000 and masked in data and raw not in data
+          print("POC_CHECK_OK:", ok)
+          sys.exit(0 if ok else 1)
+          PY
+          NDK_BIN="$ANDROID_HOME/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          unzip -p "$APK" lib/arm64-v8a/libcontentguard.so > /tmp/libcontentguard-poc.so
+          "$NDK_BIN/llvm-nm" -D --defined-only /tmp/libcontentguard-poc.so | grep "Java_com_hozinking_cerpen_ContentGuard_fetchKey" || { echo "SIMBOL JNI TIDAK DITEMUKAN" >&2; exit 1; }
 
       # v1.1.38: step upload-artifact DIHAPUS — kuota storage Actions
       # akun penuh sejak 9 Nov 2026 ("Artifact storage quota has been
