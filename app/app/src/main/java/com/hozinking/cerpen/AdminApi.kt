@@ -6,40 +6,40 @@ import org.json.JSONObject
 /**
  * Klien paket admin/keamanan Cerpen — sisi aplikasi (branch cerpen-admin-batch).
  *
- * Isi paket: ID guest + heartbeat + tracking, ban real-time, perintah
- * admin (kick/crash), API key anti-bypass, deteksi emulator/root/
- * integritas (hanya lapor). Redeem code TIDAK di sini — UI + alur tukar
- * kode sudah ada di AccountActivity/CoinApi.redeem (menangani
- * reward_type coins/vip/unlocks + label generik); server tinggal
- * menerbitkan kode admin lewat endpoint redeem yang sama.
+ * Tersambung ke KONTRAK SERVER cerpen-track (builder server selesai
+ * 21:34, tes 1015 OK): register / heartbeat / status / session/end /
+ * key/rotate. Semua URL dari Rust ([Endpoints.track*Url]) — tidak ada
+ * string path di DEX. Redeem code TIDAK di sini — UI + alur tukar kode
+ * sudah ada di AccountActivity/CoinApi.redeem (menangani reward_type
+ * coins/vip/unlocks + label generik); server tinggal menerbitkan kode
+ * admin lewat endpoint redeem yang sama.
  *
- * KOORDINASI SERVER (kontrak belum ada saat branch ini dibuat):
- * URL endpoint admin disediakan lewat [UrlProvider]. Default-nya
- * [UnconfiguredUrlProvider] (semua "") — pemanggilan menjadi
- * [Result.NotConfigured] dan fitur admin INERT (aplikasi jalan seperti
- * biasa). Bila kontrak server tiba, tambahkan fungsi JNI di Endpoints
- * (pola Fase 2 — URL dari Rust, tidak polos di DEX) + satu
- * UrlProvider baru; JANGAN hardcode URL di Kotlin. Daftar endpoint
- * yang harus disediakan kontrak: register, heartbeat, status, redeem
- * (lihat [UrlProvider]).
+ * Header kunci: [API_KEY_HEADER] — dikirim di SEMUA panggilan admin DAN
+ * di rute lama (koin/auth/sosial/bookmark) setelah register (lihat
+ * CoinApi/SocialApi). Tanpa header, perilaku lama dipertahankan server.
  *
- * Pengecualian: [checkStatus] punya JALUR CADANGAN lewat API Cerpen
- * yang sudah ada — GET /api/coins/me (Endpoints.coinsMeUrl). Server
- * sudah menjawab 403 {error:'banned', reason, expires_at} untuk
- * perangkat yang di-ban di jalur itu (lihat CoinApi), jadi gate ban
- * saat buka aplikasi BEKERJA HARI INI tanpa menunggu kontrak baru.
- * Begitu endpoint status khusus ada, jalur itu yang dipakai.
+ * Perilaku kunci: plaintext "ck-…" HANYA sekali (register/rotate) —
+ * simpan di [AdminKeyStore] (EncryptedSharedPreferences). Bila hilang,
+ * rotate (body device_id + fingerprint). Kunci dicabut otomatis saat
+ * ban. 401 (kunci tidak valid) -> rotate sekali lalu ulangi panggilan.
  *
  * Semua pemanggilan jaringan HARUS dari thread latar (bukan UI thread).
- * Fail-open: gagal jaringan / belum terkonfigurasi = aplikasi jalan
- * seperti biasa (ban HANYA ditegakkan dari jawaban server yang jelas
- * atau dari ban yang sudah tersimpan lokal).
+ * Fail-open: gagal jaringan = aplikasi jalan seperti biasa. Ban HANYA
+ * dari jawaban server yang jelas atau ban tersimpan lokal.
+ *
+ * SATUAN WAKTU: modul cerpen-track memakai expires_at unix DETIK.
+ * Respons ban rute LAMA (coins) bisa membawa expires_at milidetik
+ * (bug D4 — sengaja belum diperbaiki server, menunggu keputusan user):
+ * [normalizeExpiresSec] menangani keduanya secara defensif.
  */
 object AdminApi {
 
+    /** Nama header kunci API (bukan URL — aman sebagai literal Kotlin). */
+    const val API_KEY_HEADER = "x-cerpen-api-key"
+
     /** Hasil generik pemanggilan admin. */
     sealed class Result {
-        /** Endpoint belum dikonfigurasi (kontrak server belum ada) — inert. */
+        /** Endpoint belum dikonfigurasi / lib native tidak ada — inert. */
         object NotConfigured : Result()
 
         /** Gagal jaringan — fail-open: aplikasi jalan seperti biasa. */
@@ -55,7 +55,7 @@ object AdminApi {
     /** Perintah admin dari server (lihat AdminGate untuk eksekusi). */
     enum class CommandAction { KICK, CRASH, IGNORE }
 
-    data class AdminCommand(val type: String) {
+    data class AdminCommand(val id: String, val type: String) {
         val action: CommandAction
             get() = when (type) {
                 "kick" -> CommandAction.KICK
@@ -69,63 +69,83 @@ object AdminApi {
         val reason: String,
         val expiresAtMs: Long,
         val apiKey: String?,
-        val commands: List<AdminCommand>
+        val commands: List<AdminCommand>,
+        val userId: String? = null,
+        val accountType: String? = null,
+        val keyId: String? = null,
+        /** true bila register menjawab kunci sudah ada (plaintext tidak dikirim). */
+        val keyExists: Boolean = false
     )
 
     /**
-     * Penyedia URL endpoint admin. Produksi: Rust (menyusul kontrak
-     * server — JANGAN hardcode URL di Kotlin).
+     * Penyedia URL endpoint admin. Produksi: Rust (pola Fase 2 — URL
+     * dari modul native, tidak polos di DEX).
      */
     interface UrlProvider {
         fun registerUrl(): String
         fun heartbeatUrl(): String
         fun statusUrl(): String
-        fun redeemUrl(): String
+        fun sessionEndUrl(): String
+        fun keyRotateUrl(): String
     }
 
-    /** Default: belum dikonfigurasi — semua panggilan jadi NotConfigured. */
-    object UnconfiguredUrlProvider : UrlProvider {
-        override fun registerUrl() = ""
-        override fun heartbeatUrl() = ""
-        override fun statusUrl() = ""
-        override fun redeemUrl() = ""
+    /** Produksi: URL dari Rust Endpoints ("" bila lib tidak ada — fail-closed). */
+    object RustUrlProvider : UrlProvider {
+        override fun registerUrl() = Endpoints.trackRegisterUrl()
+        override fun heartbeatUrl() = Endpoints.trackHeartbeatUrl()
+        override fun statusUrl() = Endpoints.trackStatusUrl()
+        override fun sessionEndUrl() = Endpoints.trackSessionEndUrl()
+        override fun keyRotateUrl() = Endpoints.trackKeyRotateUrl()
     }
 
-    /** Di-override unit test; produksi selalu Unconfigured sampai kontrak tiba. */
-    internal var urlProvider: UrlProvider = UnconfiguredUrlProvider
+    /** Di-override unit test; produksi selalu RustUrlProvider. */
+    internal var urlProvider: UrlProvider = RustUrlProvider
 
     // ---------- parsing murni (unit-testable) ----------
 
     /**
-     * Parse jawaban status/heartbeat/register server.
+     * Normalisasi expires_at ke DETIK: nilai > 1e12 dianggap milidetik
+     * (bug D4 rute lama) lalu dibagi 1000; detik dibiarkan.
+     */
+    fun normalizeExpiresSec(value: Long): Long =
+        if (value > 1_000_000_000_000L) value / 1000 else value
+
+    /**
+     * Parse jawaban status/heartbeat/register/rotate server.
      * Bentuk yang diterima (semua field opsional kecuali ok):
-     * {ok:true, banned:bool, reason:"", expires_at:<detik|0=permanen>,
-     *  api_key:"", commands:[{type:"kick"|"crash"}]}
-     * expires_at detik (konvensi server yang sama seperti ban koin);
-     * null bila tidak di-ban.
+     * {ok:true, user_id:"", type:"guest"|"user", banned:bool,
+     *  reason:"", expires_at:<detik>, api_key:"", key_id:"",
+     *  key_exists:bool, commands:[{id, kind:"kick"|"crash", ...}]}
+     * expires_at detik (modul baru) — dinormalisasi defensif.
      */
     fun parseStatus(json: JSONObject?): StatusResult? {
         if (json == null) return null
         val banned = json.optBoolean("banned", false)
         val reason = json.optString("reason", "").trim()
-        val expSec = json.optLong("expires_at", 0)
+        val expSec = normalizeExpiresSec(json.optLong("expires_at", 0))
         return StatusResult(
             banned = banned,
             reason = reason,
             expiresAtMs = if (expSec > 0) expSec * 1000 else 0L,
             apiKey = json.optString("api_key", "").ifEmpty { null },
-            commands = parseCommands(json)
+            commands = parseCommands(json),
+            userId = json.optString("user_id", "").ifEmpty { null },
+            accountType = json.optString("type", "").ifEmpty { null },
+            keyId = json.optString("key_id", "").ifEmpty { null },
+            keyExists = json.optBoolean("key_exists", false)
         )
     }
 
-    /** Parse array "commands" — tipe tak dikenal diabaikan (IGNORE). */
+    /** Parse array "commands" — kind (kontrak baru) atau type (lama). */
     fun parseCommands(json: JSONObject?): List<AdminCommand> {
         val out = ArrayList<AdminCommand>()
         val arr = json?.optJSONArray("commands") ?: return out
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val t = o.optString("type", "").trim()
-            if (t.isNotEmpty()) out.add(AdminCommand(t))
+            val kind = o.optString("kind", "").ifEmpty { o.optString("type", "") }.trim()
+            if (kind.isNotEmpty()) {
+                out.add(AdminCommand(o.optString("id", ""), kind))
+            }
         }
         return out
     }
@@ -137,7 +157,7 @@ object AdminApi {
     // ---------- jaringan ----------
 
     /**
-     * POST/GET ke URL admin dengan header gerbang + kunci API bila ada.
+     * Panggilan ke URL admin dengan header gerbang + kunci API bila ada.
      * Mengikuti pola CoinApi.request (Hosts.withFallback, timeout sama).
      * Kunci API TIDAK PERNAH ditulis ke log.
      */
@@ -163,7 +183,7 @@ object AdminApi {
                         if (s.isNotBlank()) conn.setRequestProperty("Cookie", "cms_user=$s")
                     }
                     if (!apiKey.isNullOrBlank()) {
-                        conn.setRequestProperty("X-Api-Key", apiKey)
+                        conn.setRequestProperty(API_KEY_HEADER, apiKey)
                     }
                     if (body != null) {
                         conn.doOutput = true
@@ -190,104 +210,172 @@ object AdminApi {
         }
     }
 
-    /** Ubah Resp jadi Result (403 banned -> Banned, 200 -> Ok/NotConfigured). */
+    /** Ubah Resp jadi Result (403 banned -> Banned, 200 -> Ok). */
     private fun toResult(r: CoinApi.Resp): Result {
         if (r.isNetworkError) return Result.NetworkError
         if (r.status == 403) {
             val msg = CoinGate.bannedMessage(r.json)
             if (msg != null) {
-                val expSec = r.json?.optLong("expires_at", 0) ?: 0L
+                val expSec = normalizeExpiresSec(r.json?.optLong("expires_at", 0) ?: 0L)
                 return Result.Banned(msg, if (expSec > 0) expSec * 1000 else 0L)
             }
+            return Result.NetworkError
         }
+        if (r.status == 401) return Result.NetworkError
         val st = parseStatus(r.json)
         if (st == null || r.status !in 200..299) return Result.NetworkError
         if (st.banned) return Result.Banned(st.reason, st.expiresAtMs)
         return Result.Ok(st)
     }
 
+    /**
+     * Jalankan [call]; bila 401 (kunci tidak valid) -> rotate sekali
+     * lalu ulangi SATU kali. Rotate gagal / tetap 401 -> NetworkError.
+     */
+    private fun withRotateRetry(ctx: Context, call: () -> CoinApi.Resp): CoinApi.Resp {
+        val first = call()
+        if (first.status != 401) return first
+        if (!rotateKey(ctx)) return first
+        return call()
+    }
+
     private fun deviceBody(ctx: Context): JSONObject =
         JSONObject().apply {
             put("device_id", CoinStore.deviceId(ctx))
             put("android_id", CoinStore.androidId(ctx))
-            val uid = CoinStore.userId(ctx)
-            if (uid != null) put("user_id", uid)
         }
 
-    /**
-     * Cek status banned. Jalur utama: endpoint status khusus (bila
-     * kontrak sudah ada). Jalur cadangan: GET /api/coins/me yang sudah
-     * ada — server menjawab 403 banned untuk perangkat yang di-ban.
-     * Offline / belum terkonfigurasi -> NetworkError / NotConfigured
-     * (fail-open).
-     */
-    fun checkStatus(ctx: Context): Result {
-        val url = urlProvider.statusUrl()
-        if (url.isNotBlank()) {
-            return toResult(adminRequest(ctx, "GET", url, null))
-        }
-        // Jalur cadangan — API yang sudah ada, tanpa endpoint baru.
-        val dev = java.net.URLEncoder.encode(CoinStore.deviceId(ctx), "UTF-8")
-        val r = CoinApi.request(ctx, "GET", Endpoints.coinsMeUrl(dev))
-        if (r.isNetworkError) return Result.NetworkError
-        if (r.status == 403) {
-            val msg = CoinGate.bannedMessage(r.json)
-            if (msg != null) {
-                val expSec = r.json?.optLong("expires_at", 0) ?: 0L
-                return Result.Banned(msg, if (expSec > 0) expSec * 1000 else 0L)
+    /** Body register/heartbeat: identitas + sidik + sinyal (nama field kontrak). */
+    private fun trackBody(ctx: Context): JSONObject {
+        val signals = DeviceSignals.collect(ctx)
+        return deviceBody(ctx).apply {
+            put("fingerprint", DeviceSignals.fingerprint(ctx))
+            put("device_model", android.os.Build.MODEL ?: "")
+            put("android_version", android.os.Build.VERSION.RELEASE ?: "")
+            put("app_version", BuildConfig.VERSION_NAME)
+            val sig = DeviceSignals.toJson(signals)
+            val keys = sig.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                put(k, sig.get(k))
             }
-            return Result.NetworkError
+            DeviceSignals.integrityToken(ctx)?.let { put("integrity_token", it) }
         }
-        if (r.status !in 200..299) return Result.NetworkError
-        // /me tidak (belum) membawa field banned — lolos.
-        val st = parseStatus(r.json)
-        if (st != null && st.banned) return Result.Banned(st.reason, st.expiresAtMs)
-        return Result.Ok(st ?: StatusResult(false, "", 0L, null, emptyList()))
     }
 
     /**
-     * Daftarkan guest (sekali per instalasi) + kirim sidik perangkat
-     * dan sinyal deteksi. Jawaban boleh membawa api_key (disimpan
-     * AdminKeyStore oleh pemanggil) dan perintah admin.
-     * Belum terkonfigurasi -> NotConfigured (guest sudah dikenal server
-     * lewat device_id di tiap panggilan CoinApi — tidak ada yang rusak).
+     * Cek status banned (dipakai saat buka aplikasi — SEBELUM konten).
+     * Jalur utama: endpoint status kontrak. Jalur cadangan (lib native
+     * tidak ada — perangkat non-arm64): GET /api/coins/me yang sudah
+     * ada — server menjawab 403 banned untuk perangkat yang di-ban.
+     */
+    fun checkStatus(ctx: Context): Result {
+        val url = urlProvider.statusUrl()
+        if (url.isBlank()) {
+            // Jalur cadangan — API yang sudah ada, tanpa endpoint baru.
+            val dev = java.net.URLEncoder.encode(CoinStore.deviceId(ctx), "UTF-8")
+            val r = CoinApi.request(ctx, "GET", Endpoints.coinsMeUrl(dev))
+            if (r.isNetworkError) return Result.NetworkError
+            if (r.status == 403) {
+                val msg = CoinGate.bannedMessage(r.json)
+                if (msg != null) {
+                    val expSec = normalizeExpiresSec(r.json?.optLong("expires_at", 0) ?: 0L)
+                    return Result.Banned(msg, if (expSec > 0) expSec * 1000 else 0L)
+                }
+                return Result.NetworkError
+            }
+            if (r.status !in 200..299) return Result.NetworkError
+            val st = parseStatus(r.json)
+            if (st != null && st.banned) return Result.Banned(st.reason, st.expiresAtMs)
+            return Result.Ok(st ?: StatusResult(false, "", 0L, null, emptyList()))
+        }
+        val r = withRotateRetry(ctx) { adminRequest(ctx, "GET", url, null) }
+        return toResult(r)
+    }
+
+    /**
+     * Daftarkan guest (sekali per instalasi). 201 = kunci baru (plaintext
+     * — simpan lewat AdminKeyStore oleh pemanggil); 200 key_exists =
+     * kunci aktif sudah ada (plaintext TIDAK dikirim lagi — pemanggil
+     * harus rotate bila kunci lokal hilang). 403 = perangkat/fingerprint
+     * dibanned. 400/429 = NetworkError (fail-open, coba lagi nanti).
      */
     fun register(ctx: Context): Result {
         val url = urlProvider.registerUrl()
         if (url.isBlank()) return Result.NotConfigured
-        val signals = DeviceSignals.collect(ctx)
-        val body = deviceBody(ctx).apply {
-            put("device_model", android.os.Build.MODEL ?: "")
-            put("device_manufacturer", android.os.Build.MANUFACTURER ?: "")
-            put("android_version", android.os.Build.VERSION.RELEASE ?: "")
-            put("app_version", BuildConfig.VERSION_NAME)
-            put("signals", DeviceSignals.toJson(signals))
-            DeviceSignals.integrityToken(ctx)?.let { put("integrity_token", it) }
-        }
-        return toResult(adminRequest(ctx, "POST", url, body))
+        return toResult(adminRequest(ctx, "POST", url, trackBody(ctx)))
     }
 
     /**
-     * Heartbeat: presence + sesi baca saat ini + sinyal deteksi ringkas.
-     * Belum terkonfigurasi -> NotConfigured; pemanggil (AdminGate)
-     * memakai checkStatus sebagai pengganti (poll ban ringan).
+     * Heartbeat: presence + sesi baca + detik baca + ack perintah yang
+     * sudah dieksekusi. reading_seconds 0–120 (dibatasi pemanggil).
+     * 401 -> rotate sekali lalu ulangi. 403 = banned (dicek tiap heartbeat).
      */
-    fun heartbeat(ctx: Context, session: AdminGate.ReadingSession?): Result {
+    fun heartbeat(
+        ctx: Context,
+        session: AdminGate.ReadingSession?,
+        readingSeconds: Int,
+        acked: List<String>
+    ): Result {
         val url = urlProvider.heartbeatUrl()
         if (url.isBlank()) return Result.NotConfigured
-        val body = deviceBody(ctx).apply {
+        val body = trackBody(ctx).apply {
             if (session != null) {
                 put("reading", JSONObject().apply {
                     put("kind", session.kind)
                     put("target_id", session.targetId)
                     put("season", session.season)
                     put("no", session.no)
-                    put("started_at", session.startedAtMs / 1000)
                 })
             }
-            put("signals", DeviceSignals.toJson(DeviceSignals.collect(ctx)))
-            DeviceSignals.integrityToken(ctx)?.let { put("integrity_token", it) }
+            put("reading_seconds", readingSeconds.coerceIn(0, 120))
+            if (acked.isNotEmpty()) {
+                val arr = org.json.JSONArray()
+                for (id in acked) arr.put(id)
+                put("acked", arr)
+            }
         }
-        return toResult(adminRequest(ctx, "POST", url, body))
+        val r = withRotateRetry(ctx) { adminRequest(ctx, "POST", url, body) }
+        return toResult(r)
+    }
+
+    /**
+     * Tutup sesi baca di server (dipanggil saat reader ditutup).
+     * Best-effort — true bila server menjawab 200.
+     */
+    fun endSession(ctx: Context, readingSeconds: Int): Boolean {
+        val url = urlProvider.sessionEndUrl()
+        if (url.isBlank()) return false
+        val key = AdminKeyStore.apiKey(ctx)
+        val body = JSONObject().apply {
+            if (!key.isNullOrBlank()) put("api_key", key)
+            put("reading_seconds", readingSeconds.coerceAtLeast(0))
+        }
+        return try {
+            val r = adminRequest(ctx, "POST", url, body)
+            r.status in 200..299
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Rotate kunci API: header kunci lama, ATAU (bila kunci hilang)
+     * body device_id + fingerprint (harus cocok dengan yang tersimpan).
+     * Kunci lama dicabut server. True bila kunci baru tersimpan.
+     */
+    fun rotateKey(ctx: Context): Boolean {
+        val url = urlProvider.keyRotateUrl()
+        if (url.isBlank()) return false
+        val body = JSONObject().apply {
+            put("device_id", CoinStore.deviceId(ctx))
+            put("fingerprint", DeviceSignals.fingerprint(ctx))
+        }
+        val r = adminRequest(ctx, "POST", url, body)
+        if (r.status !in 200..299) return false
+        val st = parseStatus(r.json) ?: return false
+        val key = st.apiKey ?: return false
+        AdminKeyStore.saveApiKey(ctx, key)
+        return true
     }
 }

@@ -224,6 +224,13 @@ object CoinApi {
             CoinStore.session(ctx)?.let { s ->
                 if (s.isNotBlank()) conn.setRequestProperty("Cookie", "cms_user=$s")
             }
+            // Paket admin: kunci API cerpen-track di SEMUA rute lama
+            // (koin/auth) setelah register — server menolak kunci tak
+            // valid / pemilik dibanned (401/403); tanpa header, perilaku
+            // lama dipertahankan server. Kunci TIDAK PERNAH di-log.
+            AdminKeyStore.apiKey(ctx)?.let { k ->
+                if (k.isNotBlank()) conn.setRequestProperty(AdminApi.API_KEY_HEADER, k)
+            }
             if (body != null) {
                 conn.doOutput = true
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")

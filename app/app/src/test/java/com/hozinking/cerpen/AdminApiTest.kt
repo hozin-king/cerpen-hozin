@@ -27,7 +27,7 @@ class AdminApiTest {
         val st = AdminApi.parseStatus(
             JSONObject(
                 """{"ok":true,"banned":true,"reason":"spam","expires_at":1795000000,
-                   "api_key":"kunci-baru","commands":[{"type":"kick"},{"type":"crash"}]}"""
+                   "api_key":"kunci-baru","commands":[{"id":"c1","kind":"kick"},{"id":"c2","kind":"crash"}]}"""
             )
         )!!
         assertTrue(st.banned)
@@ -36,6 +36,52 @@ class AdminApiTest {
         assertEquals(1795000000000L, st.expiresAtMs)
         assertEquals("kunci-baru", st.apiKey)
         assertEquals(listOf("kick", "crash"), st.commands.map { it.type })
+        assertEquals(listOf("c1", "c2"), st.commands.map { it.id })
+    }
+
+    @Test
+    fun parseRegisterNewKey() {
+        // 201 register baru: plaintext kunci + user_id + type + key_id.
+        val st = AdminApi.parseStatus(
+            JSONObject(
+                """{"ok":true,"user_id":"user:u-abc","type":"guest","api_key":"ck-0123456789abcdef0123456789abcdef","key_id":"k1","banned":false,"commands":[]}"""
+            )
+        )!!
+        assertFalse(st.banned)
+        assertEquals("user:u-abc", st.userId)
+        assertEquals("guest", st.accountType)
+        assertEquals("k1", st.keyId)
+        assertEquals("ck-0123456789abcdef0123456789abcdef", st.apiKey)
+        assertFalse(st.keyExists)
+    }
+
+    @Test
+    fun parseRegisterKeyExists() {
+        // 200 key_exists: plaintext TIDAK dikirim — pemanggil harus rotate.
+        val st = AdminApi.parseStatus(
+            JSONObject("""{"ok":true,"user_id":"device:uuid-1","type":"guest","key_exists":true,"key_id":"k1","banned":false,"commands":[]}""")
+        )!!
+        assertTrue(st.keyExists)
+        assertNull(st.apiKey)
+        assertEquals("k1", st.keyId)
+    }
+
+    @Test
+    fun normalizeExpiresSecMsVsSeconds() {
+        // Modul baru: detik dibiarkan.
+        assertEquals(1795000000L, AdminApi.normalizeExpiresSec(1795000000L))
+        // Rute lama (bug D4): ms dibagi 1000.
+        assertEquals(1795000000L, AdminApi.normalizeExpiresSec(1795000000000L))
+        assertEquals(0L, AdminApi.normalizeExpiresSec(0L))
+    }
+
+    @Test
+    fun parseStatusExpiresMsDefensive() {
+        // expires_at dalam ms (rute lama) tetap diformat sebagai detik yang benar.
+        val st = AdminApi.parseStatus(
+            JSONObject("""{"ok":true,"banned":true,"reason":"spam","expires_at":1795000000000}""")
+        )!!
+        assertEquals(1795000000000L, st.expiresAtMs)
     }
 
     @Test
@@ -57,13 +103,23 @@ class AdminApiTest {
     @Test
     fun parseCommandsUnknownIgnored() {
         val cmds = AdminApi.parseCommands(
-            JSONObject("""{"commands":[{"type":"kick"},{"type":"aneh"},{"type":"crash"},{}]}""")
+            JSONObject("""{"commands":[{"id":"a","kind":"kick"},{"id":"b","kind":"aneh"},{"id":"c","kind":"crash"},{}]}""")
         )
         assertEquals(listOf("kick", "aneh", "crash"), cmds.map { it.type })
         // Aksi: kick -> KICK, crash -> CRASH, tak dikenal -> IGNORE.
         assertEquals(AdminApi.CommandAction.KICK, cmds[0].action)
         assertEquals(AdminApi.CommandAction.IGNORE, cmds[1].action)
         assertEquals(AdminApi.CommandAction.CRASH, cmds[2].action)
+    }
+
+    @Test
+    fun parseCommandsLegacyTypeField() {
+        // Field "type" lama tetap diterima sebagai fallback kind.
+        val cmds = AdminApi.parseCommands(
+            JSONObject("""{"commands":[{"id":"x","type":"kick"}]}""")
+        )
+        assertEquals(listOf("kick"), cmds.map { it.type })
+        assertEquals("x", cmds[0].id)
     }
 
     @Test

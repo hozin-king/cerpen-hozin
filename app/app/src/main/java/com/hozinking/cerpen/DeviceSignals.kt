@@ -39,7 +39,9 @@ object DeviceSignals {
         val emulator: Boolean,
         val emulatorHints: List<String>,
         val bootloaderLocked: Boolean?,
-        val verifiedBoot: String?
+        val verifiedBoot: String?,
+        /** Heuristik custom ROM (bukan stock) — lihat [isCustomRomBuild]. */
+        val customRom: Boolean
     )
 
     // Jalur su yang umum (root pasif — hanya cek keberadaan file).
@@ -120,15 +122,64 @@ object DeviceSignals {
         else -> null
     }
 
-    /** Sinyal -> JSON ringkas untuk body register/heartbeat. */
+    // Nama custom ROM yang umum (heuristik — stock MIUI/HyperOS bukan custom).
+    private val CUSTOM_ROM_MARKERS = listOf(
+        "lineage", "crdroid", "evolution", "arrow", "havoc",
+        "pixelexperience", "derpfest", "paranoid", "pixelplus",
+        "cherish", "afterlife", "rising", "voltage"
+    )
+
+    /** true bila DISPLAY/fingerprint menyebut custom ROM (heuristik). */
+    fun isCustomRomBuild(display: String, fingerprint: String): Boolean {
+        val hay = (display + " " + fingerprint).lowercase()
+        return CUSTOM_ROM_MARKERS.any { it in hay }
+    }
+
+    /**
+     * Sidik perangkat stabil (8–512 karakter, kontrak cerpen-track):
+     * SHA-256 hex (64 karakter) dari ANDROID_ID + properti Build yang
+     * tidak berubah saat hapus data / install ulang aplikasi — supaya
+     * registrasi baru dari perangkat yang sama tetap dikenali server
+     * meski device_id guest (UUID) sudah berganti. BUKAN rahasia:
+     * server hanya membandingkan kesamaan.
+     */
+    fun buildFingerprint(
+        androidId: String,
+        brand: String,
+        model: String,
+        manufacturer: String,
+        device: String,
+        hardware: String,
+        board: String
+    ): String {
+        val raw = listOf(androidId, brand, model, manufacturer, device, hardware, board)
+            .joinToString("|")
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(raw.toByteArray(Charsets.UTF_8))
+        return digest.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    /** Sidik perangkat ini (untuk register/rotate). */
+    fun fingerprint(ctx: Context): String = buildFingerprint(
+        CoinStore.androidId(ctx),
+        Build.BRAND ?: "",
+        Build.MODEL ?: "",
+        Build.MANUFACTURER ?: "",
+        Build.DEVICE ?: "",
+        Build.HARDWARE ?: "",
+        Build.BOARD ?: ""
+    )
+
+    /** Sinyal -> JSON dengan NAMA FIELD KONTRAK cerpen-track. */
     fun toJson(s: Signals): JSONObject = JSONObject().apply {
-        put("rooted", s.rooted)
+        put("is_rooted", s.rooted)
         put("root_methods", JSONArray(s.rootMethods))
-        put("emulator", s.emulator)
-        put("emulator_hints", JSONArray(s.emulatorHints))
+        put("is_emulator", s.emulator)
+        put("emulator_signals", JSONArray(s.emulatorHints))
         if (s.bootloaderLocked == null) put("bootloader_locked", JSONObject.NULL)
         else put("bootloader_locked", s.bootloaderLocked)
         put("verified_boot", s.verifiedBoot ?: JSONObject.NULL)
+        put("custom_rom", s.customRom)
     }
 
     // ---------- kolektor Android ----------
@@ -171,7 +222,8 @@ object DeviceSignals {
             emulator = hints.isNotEmpty(),
             emulatorHints = hints,
             bootloaderLocked = parseBootLocked(systemProperty("ro.boot.flash.locked")),
-            verifiedBoot = systemProperty("ro.boot.verifiedbootstate")
+            verifiedBoot = systemProperty("ro.boot.verifiedbootstate"),
+            customRom = isCustomRomBuild(Build.DISPLAY ?: "", Build.FINGERPRINT ?: "")
         )
     }
 

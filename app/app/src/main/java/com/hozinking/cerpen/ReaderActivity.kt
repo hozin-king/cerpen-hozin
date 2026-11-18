@@ -288,6 +288,8 @@ class ReaderActivity : AppCompatActivity() {
         if (!force && !tracker.flushDue()) return
         val seconds = tracker.takeFlush()
         if (seconds <= 0) return
+        // Detik yang sama juga dilaporkan ke heartbeat admin (cerpen-track).
+        AdminGate.addReadingSeconds(seconds)
         Thread {
             val r = CoinApi.reportReading(this, "cerpen", c.id, seasonNo, episodeNo, seconds, tracker.maxScroll)
             if (r.status in 200..299) {
@@ -345,8 +347,7 @@ class ReaderActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveProgress()
-        // Paket admin: sesi baca selesai + lepas foreground + hentikan heartbeat.
-        AdminGate.clearReadingSession()
+        // Paket admin: lepas foreground + hentikan heartbeat.
         AdminGate.clearForeground(this)
         AdminGate.stopHeartbeat()
         // v1.1.30: hentikan pelacak baca + kirim sisa detik (best-effort).
@@ -355,6 +356,8 @@ class ReaderActivity : AppCompatActivity() {
         tickHandler.removeCallbacks(tickRunnable)
         tracker.noteVisible(false)
         flushReading(force = true)
+        // Paket admin: tutup sesi baca di server (setelah flush terakhir).
+        AdminGate.endReadingSession(this)
         // v1.1.32: hentikan refresh live angka sosial.
         socialBar?.stopLiveUpdates()
         // v1.1.18: matikan denyut saat layar tidak terlihat (hemat baterai).

@@ -148,6 +148,24 @@ pub fn bookmarks_delete_url(kind: &str, content_id: &str) -> String {
     build(data::BOOKMARKS_DELETE, &[kind, content_id])
 }
 
+// ---------- paket admin (cerpen-track) ----------
+
+pub fn track_register_url() -> String {
+    decode(data::TRACK_REGISTER)
+}
+pub fn track_heartbeat_url() -> String {
+    decode(data::TRACK_HEARTBEAT)
+}
+pub fn track_status_url() -> String {
+    decode(data::TRACK_STATUS)
+}
+pub fn track_session_end_url() -> String {
+    decode(data::TRACK_SESSION_END)
+}
+pub fn track_key_rotate_url() -> String {
+    decode(data::TRACK_KEY_ROTATE)
+}
+
 /// Parser Adapters (dulu `contains("/api/cerpen-img/")` +
 /// `substringAfter` + `removeSuffix(".enc")` di Kotlin): URL gambar CMS
 /// -> assetPath (tanpa ".enc"); `None` bila bukan URL gambar CMS.
@@ -236,6 +254,11 @@ jni_noarg!(social_vote_url, Java_com_hozinking_cerpen_Endpoints_socialVoteUrlNat
 jni_noarg!(social_report_url, Java_com_hozinking_cerpen_Endpoints_socialReportUrlNative);
 jni_noarg!(social_stats_batch_url, Java_com_hozinking_cerpen_Endpoints_socialStatsBatchUrlNative);
 jni_noarg!(bookmarks_url, Java_com_hozinking_cerpen_Endpoints_bookmarksUrlNative);
+jni_noarg!(track_register_url, Java_com_hozinking_cerpen_Endpoints_trackRegisterUrlNative);
+jni_noarg!(track_heartbeat_url, Java_com_hozinking_cerpen_Endpoints_trackHeartbeatUrlNative);
+jni_noarg!(track_status_url, Java_com_hozinking_cerpen_Endpoints_trackStatusUrlNative);
+jni_noarg!(track_session_end_url, Java_com_hozinking_cerpen_Endpoints_trackSessionEndUrlNative);
+jni_noarg!(track_key_rotate_url, Java_com_hozinking_cerpen_Endpoints_trackKeyRotateUrlNative);
 
 jni_onearg!(content_manifest_url, Java_com_hozinking_cerpen_Endpoints_contentManifestUrlNative);
 jni_onearg!(content_all_url, Java_com_hozinking_cerpen_Endpoints_contentAllUrlNative);
