@@ -143,9 +143,9 @@ object SocialApi {
         }
     }
 
-    fun request(ctx: Context, method: String, path: String, body: JSONObject? = null): Resp {
+    fun request(ctx: Context, method: String, url: String, body: JSONObject? = null): Resp {
         return try {
-            Hosts.withFallback(Hosts.PRIMARY + path) { url ->
+            Hosts.withFallback(url) { url ->
                 doRequest(ctx, method, url, body)
             }
         } catch (e: Exception) {
@@ -164,7 +164,7 @@ object SocialApi {
             put("kind", kind)
             put("ref", ref)
         }
-        val r = request(ctx, "POST", "/api/cerpen-social/view", body)
+        val r = request(ctx, "POST", Endpoints.socialViewUrl(), body)
         return if (r.status in 200..299) parseStats(r.json) else null
     }
 
@@ -175,7 +175,7 @@ object SocialApi {
             put("ref", ref)
             put("vote", vote)
         }
-        return request(ctx, "POST", "/api/cerpen-social/vote", body)
+        return request(ctx, "POST", Endpoints.socialVoteUrl(), body)
     }
 
     /** Lapor konten (guest boleh). 429 / error "already_reported" bila sudah lapor hari ini. */
@@ -186,7 +186,7 @@ object SocialApi {
             put("category", category)
             if (note.isNotBlank()) put("note", note)
         }
-        return request(ctx, "POST", "/api/cerpen-social/report", body)
+        return request(ctx, "POST", Endpoints.socialReportUrl(), body)
     }
 
     /** Satu stats tanpa menambah view. Null bila gagal/offline. */
@@ -194,7 +194,7 @@ object SocialApi {
         val k = URLEncoder.encode(kind, "UTF-8")
         val rf = URLEncoder.encode(ref, "UTF-8")
         val dev = URLEncoder.encode(CoinStore.deviceId(ctx), "UTF-8")
-        val r = request(ctx, "GET", "/api/cerpen-social/stats?kind=$k&ref=$rf&device_id=$dev")
+        val r = request(ctx, "GET", Endpoints.socialStatsUrl(k, rf, dev))
         return if (r.status in 200..299) parseStats(r.json) else null
     }
 
@@ -211,7 +211,7 @@ object SocialApi {
                 arr.put(JSONObject().apply { put("kind", kind); put("ref", ref) })
             }
             val body = deviceBody(ctx).apply { put("items", arr) }
-            val r = request(ctx, "POST", "/api/cerpen-social/stats-batch", body)
+            val r = request(ctx, "POST", Endpoints.socialStatsBatchUrl(), body)
             val stats = r.json?.optJSONObject("stats") ?: continue
             val keys = stats.keys()
             while (keys.hasNext()) {

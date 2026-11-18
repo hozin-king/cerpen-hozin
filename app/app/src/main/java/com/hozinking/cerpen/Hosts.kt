@@ -18,8 +18,30 @@ import java.io.IOException
  * fallback, perilaku lama berlaku (null / fail-open).
  */
 object Hosts {
-    const val PRIMARY = "https://hozinking.my.id"
-    const val FALLBACK = "https://hozin-cms.muchammadhozin.workers.dev"
+    /**
+     * Sumber host. Produksi: Rust (JNI — [Endpoints]), supaya host tidak
+     * ada sebagai string polos di DEX. Unit test meng-override dengan
+     * host uji (lihat HostsTest); produksi JANGAN pernah mengubah ini.
+     */
+    interface HostSource {
+        val primary: String
+        val fallback: String
+    }
+
+    /** Sumber produksi: host dari modul native Rust. */
+    object RustHostSource : HostSource {
+        override val primary: String get() = Endpoints.primaryHost()
+        override val fallback: String get() = Endpoints.fallbackHost()
+    }
+
+    /** Di-override unit test; produksi selalu [RustHostSource]. */
+    internal var hostSource: HostSource = RustHostSource
+
+    /** Host utama — dibaca dari sumber aktif (Rust di produksi). */
+    val PRIMARY: String get() = hostSource.primary
+
+    /** Host fallback — dibaca dari sumber aktif (Rust di produksi). */
+    val FALLBACK: String get() = hostSource.fallback
 
     /** Ganti host di awal URL (path + query sama persis). */
     fun fallbackUrl(url: String): String =

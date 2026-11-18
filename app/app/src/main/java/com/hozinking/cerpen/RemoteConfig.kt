@@ -43,7 +43,8 @@ data class RemoteConfig(
     }
 
     companion object {
-        const val ENDPOINT = "https://hozinking.my.id/api/cerpen-config"
+        /** Endpoint config — dari Rust (Endpoints) supaya tidak ada di DEX. */
+        val ENDPOINT: String get() = Endpoints.remoteConfigUrl()
         const val PREFS_NAME = "remote_config"
         const val PREF_KEY_JSON = "remote_config_json"
         const val MAX_BANNER_CHARS = 140

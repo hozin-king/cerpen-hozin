@@ -27,7 +27,8 @@ import java.net.URLEncoder
  */
 object ShareLink {
     private const val TAG = "ShareLink"
-    private const val API_BASE = "https://hozinking.my.id/api/share"
+    // API_BASE dulu di sini sebagai literal — kini dari Rust
+    // (Endpoints.shareCreateUrl / shareResolveUrl) supaya tidak ada di DEX.
     private const val CONNECT_TIMEOUT_MS = 8000
     private const val READ_TIMEOUT_MS = 15000
 
@@ -102,7 +103,7 @@ object ShareLink {
     ): String? {
         return try {
             // v1.1.22: host utama mati -> coba SEKALI ke workers.dev.
-            Hosts.withFallback("$API_BASE/create") { url ->
+            Hosts.withFallback(Endpoints.shareCreateUrl()) { url ->
                 createShareOnce(url, contentType, contentId, season, episodeNo)
             }
         } catch (e: Exception) {
@@ -150,7 +151,7 @@ object ShareLink {
         return try {
             // v1.1.22: host utama mati -> coba SEKALI ke workers.dev.
             Hosts.withFallback(
-                "$API_BASE/resolve?token=" + URLEncoder.encode(token, Charsets.UTF_8.name())
+                Endpoints.shareResolveUrl(URLEncoder.encode(token, Charsets.UTF_8.name()))
             ) { url -> resolveShareOnce(url) }
         } catch (e: Exception) {
             Log.w(TAG, "resolve gagal: ${e.message}")

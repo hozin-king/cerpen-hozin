@@ -27,7 +27,9 @@ import javax.crypto.spec.SecretKeySpec
 object CerpenApi {
     private const val TAG = "CerpenApi"
 
-    const val BASE_URL = "https://hozinking.my.id/api/c/"
+    // BASE_URL dulu di sini sebagai literal — kini dari Rust
+    // (Endpoints.contentManifestUrl / contentAllUrl) supaya tidak ada
+    // di DEX. Hash + path disusun di sana, sama persis seperti dulu.
     private const val PATH_KEY_LABEL = "cerpen-api-v1"
     private const val CONNECT_TIMEOUT_MS = 8000
     private const val READ_TIMEOUT_MS = 60000
@@ -152,7 +154,7 @@ object CerpenApi {
     fun fetchManifest(contentKey: ByteArray): D1Manifest? {
         versionLocked = false
         val pathKey = derivePathKey(contentKey)
-        val body = fetchBytes("$BASE_URL${currentHash(pathKey)}/cerpen/manifest") ?: return null
+        val body = fetchBytes(Endpoints.contentManifestUrl(currentHash(pathKey))) ?: return null
         return try {
             val o = JSONObject(String(body, Charsets.UTF_8))
             val counts = HashMap<String, Int>()
@@ -175,7 +177,7 @@ object CerpenApi {
     fun fetchAll(contentKey: ByteArray): JSONObject? {
         versionLocked = false
         val pathKey = derivePathKey(contentKey)
-        val body = fetchBytes("$BASE_URL${currentHash(pathKey)}/cerpen/all") ?: return null
+        val body = fetchBytes(Endpoints.contentAllUrl(currentHash(pathKey))) ?: return null
         return try {
             JSONObject(String(body, Charsets.UTF_8))
         } catch (e: Exception) {

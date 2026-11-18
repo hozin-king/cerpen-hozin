@@ -1,0 +1,19 @@
+[package]
+name = "contentguard"
+version = "1.1.39"
+edition = "2021"
+description = "Penjaga kunci konten Cerpen Hozin — port Rust dari contentguard.cpp (C++). Mekanisme SAMA: kunci AES-256 32 byte di-bake saat build dalam bentuk ter-XOR."
+
+[lib]
+name = "contentguard"
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = "0.21"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

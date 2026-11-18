@@ -21,13 +21,9 @@ import java.net.URL
  */
 object UpdateCheck {
 
-    const val REPO_OWNER = "hozin-king"
-    const val REPO_NAME = "cerpen-hozin"
     /** v1.1.29: versi terbaru dari CMS Worker (fail-open bila 404). */
-    const val LATEST_RELEASE_URL =
-        "https://hozinking.my.id/api/cerpen-version"
-    const val RELEASES_PAGE_URL =
-        "https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest"
+    val LATEST_RELEASE_URL: String get() = Endpoints.versionCheckUrl()
+    val RELEASES_PAGE_URL: String get() = Endpoints.releasesPageUrl()
 
     /** Tertinggal berapa rilis hingga dialog jadi PAKSA (tanpa bisa ditutup). */
     const val FORCE_AFTER_BEHIND = 3

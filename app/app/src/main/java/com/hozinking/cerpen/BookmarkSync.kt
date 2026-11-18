@@ -121,7 +121,7 @@ object BookmarkSync {
 
     /** Daftar server; null = offline / sesi mati / respons tak dikenal. */
     fun fetchRemote(ctx: Context): List<ProgressStore.SeriesBookmark>? {
-        val r = SocialApi.request(ctx, "GET", "/api/cerpen-bookmarks")
+        val r = SocialApi.request(ctx, "GET", Endpoints.bookmarksUrl())
         if (r.status !in 200..299) return null
         return parseRemoteList(r.json)
     }
@@ -135,7 +135,7 @@ object BookmarkSync {
             put("kind", kind)
             put("content_id", id)
         }
-        val r = SocialApi.request(ctx, "POST", "/api/cerpen-bookmarks", body)
+        val r = SocialApi.request(ctx, "POST", Endpoints.bookmarksUrl(), body)
         return r.status in 200..299 || r.status == 400 || r.status == 401
     }
 
@@ -143,7 +143,7 @@ object BookmarkSync {
     fun pushRemove(ctx: Context, kind: String, id: String): Boolean {
         val k = URLEncoder.encode(kind, "UTF-8")
         val c = URLEncoder.encode(id, "UTF-8")
-        val r = SocialApi.request(ctx, "DELETE", "/api/cerpen-bookmarks?kind=$k&content_id=$c")
+        val r = SocialApi.request(ctx, "DELETE", Endpoints.bookmarksDeleteUrl(k, c))
         return r.status in 200..299 || r.status == 400 || r.status == 401
     }
 
