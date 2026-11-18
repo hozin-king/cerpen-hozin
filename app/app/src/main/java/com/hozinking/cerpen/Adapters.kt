@@ -217,9 +217,13 @@ class NewsAdapter(
         if (!firstImage.isNullOrEmpty()) {
             val thumbAsset: String
             var fallback: String? = null
+            // Parser URL gambar CMS dulu inline di sini — kini dari Rust
+            // (Endpoints.imageAssetPath) supaya fragmen endpoint tidak
+            // ada di DEX; logika SAMA (marker + buang suffix ".enc").
+            val cmsAsset = Endpoints.imageAssetPath(firstImage)
             when {
-                firstImage.contains("/api/cerpen-img/") -> {
-                    thumbAsset = firstImage.substringAfter("/api/cerpen-img/").removeSuffix(".enc")
+                cmsAsset != null -> {
+                    thumbAsset = cmsAsset
                 }
                 firstImage.startsWith("http") -> {
                     val base = firstImage.substringAfterLast("/").substringBefore("?")

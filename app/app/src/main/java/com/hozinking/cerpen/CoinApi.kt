@@ -247,9 +247,9 @@ object CoinApi {
         }
     }
 
-    fun request(ctx: Context, method: String, path: String, body: JSONObject? = null): Resp {
+    fun request(ctx: Context, method: String, url: String, body: JSONObject? = null): Resp {
         return try {
-            Hosts.withFallback(Hosts.PRIMARY + path) { url ->
+            Hosts.withFallback(url) { url ->
                 doRequest(ctx, method, url, body)
             }
         } catch (e: Exception) {
@@ -268,7 +268,7 @@ object CoinApi {
     /** GET /me + simpan ke CoinStore. Null bila gagal / offline. */
     fun fetchMe(ctx: Context): MeResult? {
         val dev = URLEncoder.encode(CoinStore.deviceId(ctx), "UTF-8")
-        val r = request(ctx, "GET", "/api/cerpen-coins/me?device_id=$dev")
+        val r = request(ctx, "GET", Endpoints.coinsMeUrl(dev))
         val me = parseMe(r.json)
         if (me != null && r.status in 200..299) {
             CoinStore.saveMe(ctx, me)
@@ -283,12 +283,12 @@ object CoinApi {
             put("season", season)
             put("no", no)
         }
-        return request(ctx, "POST", "/api/cerpen-coins/purchase", body)
+        return request(ctx, "POST", Endpoints.coinsPurchaseUrl(), body)
     }
 
     fun redeem(ctx: Context, code: String): Resp {
         val body = deviceBody(ctx).apply { put("code", code.trim()) }
-        return request(ctx, "POST", "/api/cerpen-coins/redeem", body)
+        return request(ctx, "POST", Endpoints.coinsRedeemUrl(), body)
     }
 
     fun reportReading(
@@ -308,24 +308,24 @@ object CoinApi {
             put("seconds", seconds)
             put("max_scroll", maxScroll)
         }
-        return request(ctx, "POST", "/api/cerpen-coins/reading", body)
+        return request(ctx, "POST", Endpoints.coinsReadingUrl(), body)
     }
 
     fun fetchLeaderboard(ctx: Context, period: String): List<LeaderboardEntry>? {
         val p = if (period == "all") "all" else "weekly"
-        val r = request(ctx, "GET", "/api/cerpen-coins/leaderboard?period=$p")
+        val r = request(ctx, "GET", Endpoints.coinsLeaderboardUrl(p))
         return if (r.status in 200..299) parseLeaderboard(r.json) else null
     }
 
     fun fetchHistory(ctx: Context): HistoryResult? {
         val dev = URLEncoder.encode(CoinStore.deviceId(ctx), "UTF-8")
-        val r = request(ctx, "GET", "/api/cerpen-coins/history?device_id=$dev")
+        val r = request(ctx, "GET", Endpoints.coinsHistoryUrl(dev))
         return if (r.status in 200..299) parseHistory(r.json) else null
     }
 
     fun setReadingPrivacy(ctx: Context, private: Boolean): Resp {
         val body = JSONObject().apply { put("private", if (private) 1 else 0) }
-        return request(ctx, "POST", "/api/cerpen-auth/reading-privacy", body)
+        return request(ctx, "POST", Endpoints.authReadingPrivacyUrl(), body)
     }
 
     // ---------- auth ----------
@@ -336,7 +336,7 @@ object CoinApi {
             put("password", password)
             put("email", email)
         }
-        return request(ctx, "POST", "/api/cerpen-auth/register", body)
+        return request(ctx, "POST", Endpoints.authRegisterUrl(), body)
     }
 
     fun verify(ctx: Context, email: String, code: String): Resp {
@@ -344,12 +344,12 @@ object CoinApi {
             put("email", email)
             put("code", code.trim())
         }
-        return request(ctx, "POST", "/api/cerpen-auth/verify", body)
+        return request(ctx, "POST", Endpoints.authVerifyUrl(), body)
     }
 
     fun resend(ctx: Context, email: String): Resp {
         val body = JSONObject().apply { put("email", email) }
-        return request(ctx, "POST", "/api/cerpen-auth/resend", body)
+        return request(ctx, "POST", Endpoints.authResendUrl(), body)
     }
 
     fun login(ctx: Context, username: String, password: String): Resp {
@@ -357,10 +357,10 @@ object CoinApi {
             put("username", username)
             put("password", password)
         }
-        return request(ctx, "POST", "/api/cerpen-auth/login", body)
+        return request(ctx, "POST", Endpoints.authLoginUrl(), body)
     }
 
     fun logout(ctx: Context): Resp {
-        return request(ctx, "POST", "/api/cerpen-auth/logout", JSONObject())
+        return request(ctx, "POST", Endpoints.authLogoutUrl(), JSONObject())
     }
 }

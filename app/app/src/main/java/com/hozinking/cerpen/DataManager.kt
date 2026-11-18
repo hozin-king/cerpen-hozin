@@ -125,8 +125,10 @@ private fun Byte.isD1BlobSpace(): Boolean =
 object DataManager {
 
     private const val TAG = "DataManager"
-    private const val GITHUB_RAW_BASE =
-        "https://raw.githubusercontent.com/hozin-king/cerpen-hozin/main/data"
+
+    // GITHUB_RAW_BASE dulu di sini sebagai literal — kini dari Rust
+    // (Endpoints.githubManifestUrl / githubFileUrl / githubAssetUrl)
+    // supaya tidak ada di DEX.
 
     /**
      * Identitas aplikasi untuk gerbang versi server (v1.1.38) di jalur
@@ -944,8 +946,7 @@ object DataManager {
      * yang dienkripsi dengan kunci yang sama seperti full.
      */
     fun cmsImageUrl(assetPath: String, thumb: Boolean = false): String {
-        val suffix = if (thumb) ".thumb.enc" else ".enc"
-        return "${Hosts.PRIMARY}/api/cerpen-img/$assetPath$suffix"
+        return Endpoints.cmsImageUrl(assetPath, thumb)
     }
 
     /**
@@ -1225,7 +1226,7 @@ object DataManager {
         if (d1Prefs(context).getBoolean(KEY_D1_MANIFEST_ACTIVE, false)) {
             return loadManifest(context)
         }
-        val enc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc") ?: return null
+        val enc = fetchBytes(Endpoints.githubManifestUrl()) ?: return null
         val text = ContentCrypto.decrypt(enc, key)?.let { String(it, Charsets.UTF_8) }
             ?: return null
         return try {
@@ -1290,7 +1291,7 @@ object DataManager {
         // Manifest diunduh TERENKRIPSI (manifest.json.enc) dan disimpan
         // apa adanya; dekripsinya in-memory saat dibaca.
         report(0, 0, "Mengunduh daftar konten…")
-        val manifestEnc = fetchBytes("$GITHUB_RAW_BASE/manifest.json.enc")
+        val manifestEnc = fetchBytes(Endpoints.githubManifestUrl())
         if (manifestEnc == null || manifestEnc.isEmpty()) {
             Log.w(TAG, "sync dibatalkan: manifest.json.enc tidak terunduh")
             return SyncResult(false, 0, 0, 0)
@@ -1474,7 +1475,7 @@ object DataManager {
         val sha = entry.optString("sha256", "")
         val file = entry.optString("file", "")
         if (sha.isEmpty() || file.isEmpty()) return null
-        val enc = fetchBytes("$GITHUB_RAW_BASE/$file") ?: return null
+        val enc = fetchBytes(Endpoints.githubFileUrl(file)) ?: return null
         val text = ContentCrypto.decryptVerified(enc, key, sha)
         if (text == null) {
             Log.w(TAG, "sync $jsonName: verifikasi gagal, file ditolak")
@@ -1549,7 +1550,7 @@ object DataManager {
         val dest = File(dataDir(context), "$assetPath.enc")
         if (dest.exists() && dest.length() > 0) return false
         val sha = manifest.optJSONObject(assetPath)?.optString("sha256", "") ?: ""
-        val enc = fetchBytes("$GITHUB_RAW_BASE/$assetPath.enc") ?: return false
+        val enc = fetchBytes(Endpoints.githubAssetUrl(assetPath)) ?: return false
         val verified = if (sha.isEmpty()) {
             ContentCrypto.decrypt(enc, key)
         } else {

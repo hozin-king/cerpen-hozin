@@ -1,13 +1,31 @@
 package com.hozinking.cerpen
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Before
 import org.junit.Test
 import java.io.IOException
 
 /** Unit test Hosts (v1.1.22): fallback workers.dev, tanpa jaringan. */
 class HostsTest {
+
+    /** Host uji — disuntik ke Hosts.hostSource (produksi: Rust/JNI). */
+    private val testSource = object : Hosts.HostSource {
+        override val primary = "https://hozinking.my.id"
+        override val fallback = "https://hozin-cms.muchammadhozin.workers.dev"
+    }
+
+    @Before
+    fun pakaiHostUji() {
+        Hosts.hostSource = testSource
+    }
+
+    @After
+    fun kembalikanSumberRust() {
+        Hosts.hostSource = Hosts.RustHostSource
+    }
 
     @Test
     fun fallbackUrl_gantiHostPathSama() {

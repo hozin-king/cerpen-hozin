@@ -22,6 +22,9 @@
 
 include!(concat!(env!("OUT_DIR"), "/masked_key.rs"));
 
+mod endpoints;
+mod endpoints_data;
+
 use jni::objects::JObject;
 use jni::sys::jbyteArray;
 use jni::JNIEnv;
