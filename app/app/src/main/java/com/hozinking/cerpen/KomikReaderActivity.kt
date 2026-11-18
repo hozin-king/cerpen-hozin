@@ -142,11 +142,23 @@ class KomikReaderActivity : AppCompatActivity() {
         }
         // v1.1.32: lanjutkan refresh live angka sosial.
         socialBar?.startLiveUpdates()
+        // Paket admin: foreground + heartbeat + sesi baca saat ini.
+        AdminGate.setForeground(this)
+        AdminGate.startHeartbeat(this)
+        if (bound && komikId.isNotEmpty()) {
+            AdminGate.noteReadingSession(
+                AdminGate.ReadingSession("komik", komikId, 1, episodeNo, System.currentTimeMillis())
+            )
+        }
     }
 
     override fun onPause() {
         super.onPause()
         saveProgress()
+        // Paket admin: sesi baca selesai + lepas foreground + hentikan heartbeat.
+        AdminGate.clearReadingSession()
+        AdminGate.clearForeground(this)
+        AdminGate.stopHeartbeat()
         // v1.1.30: hentikan pelacak baca + kirim sisa detik (best-effort).
         tickHandler.removeCallbacks(tickRunnable)
         tracker.noteVisible(false)

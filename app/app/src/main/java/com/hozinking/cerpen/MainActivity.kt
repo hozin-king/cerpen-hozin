@@ -201,6 +201,15 @@ class MainActivity : AppCompatActivity() {
         // (hanya berlaku untuk versi ini — update aplikasi menghapusnya).
         DataManager.setAppIdentity(this)
         serverVersionLocked = isVersionLockedPersisted()
+        // Paket admin: cek ban saat buka aplikasi (deep link bisa langsung
+        // ke Main tanpa Splash — single-flight dengan Splash, hasil
+        // dipakai bersama 60 detik). Di-ban -> layar banned.
+        AdminGate.checkOnLaunch(this) { reason, exp ->
+            if (!isFinishing && !isDestroyed) {
+                AdminEnforcer.showBanned(this, reason, exp)
+            }
+        }
+        AdminGate.registerIfNeeded(this)
 
         root = findViewById(R.id.main_root)
         appTitle = findViewById(R.id.app_title)
@@ -395,6 +404,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Paket admin: activity foreground untuk showBanned/kick + heartbeat.
+        AdminGate.setForeground(this)
+        AdminGate.startHeartbeat(this)
         // v1.1.15: cek update manual dari Pengaturan — jalan sekali saat kembali.
         if (updatePrefs.getBoolean("manual_check_requested", false)) {
             updatePrefs.edit().remove("manual_check_requested").apply()
@@ -437,6 +449,10 @@ class MainActivity : AppCompatActivity() {
 
     /** v1.1.38: simpan posisi semua daftar saat aplikasi ditinggalkan. */
     override fun onPause() {
+        // Paket admin: lepas foreground + hentikan heartbeat (reader yang
+        // dibuka sesudah ini menyalakannya lagi di onResume-nya).
+        AdminGate.clearForeground(this)
+        AdminGate.stopHeartbeat()
         saveAllScroll()
         super.onPause()
     }

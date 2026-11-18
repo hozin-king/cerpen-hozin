@@ -270,6 +270,15 @@ class ReaderActivity : AppCompatActivity() {
         }
         // v1.1.32: lanjutkan refresh live angka sosial.
         socialBar?.startLiveUpdates()
+        // Paket admin: foreground + heartbeat + sesi baca saat ini.
+        AdminGate.setForeground(this)
+        AdminGate.startHeartbeat(this)
+        val c = cerpen
+        if (bound && c != null) {
+            AdminGate.noteReadingSession(
+                AdminGate.ReadingSession("cerpen", c.id, seasonNo, episodeNo, System.currentTimeMillis())
+            )
+        }
     }
 
     /** v1.1.30: kirim detik baca tertunda ke server (best-effort). */
@@ -336,6 +345,10 @@ class ReaderActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveProgress()
+        // Paket admin: sesi baca selesai + lepas foreground + hentikan heartbeat.
+        AdminGate.clearReadingSession()
+        AdminGate.clearForeground(this)
+        AdminGate.stopHeartbeat()
         // v1.1.30: hentikan pelacak baca + kirim sisa detik (best-effort).
         // trackingActive sengaja TIDAK dimatikan — onResume menyalakan
         // lagi tickernya bila episode masih tampil.
