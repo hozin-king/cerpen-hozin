@@ -92,12 +92,30 @@ object ThemeHelper {
      * Warna tint kaca dock (v1.1.12) — dipakai GlassView: [sheen
      * specular atas, isi tengah ~40%, isi bawah ~32%]. dockBackground
      * lama (66% statis) dihapus — diganti kaca hidup GlassView.
+     * v1.1.41: pill putih frosted ala screenshot referensi — tema
+     * terang/sepia memakai putih susu (72%/62%, sheen lebih kuat)
+     * supaya pill terbaca sebagai kaca putih di atas konten; tema
+     * Malam tetap kaca gelap (frosted, alpha naik) agar ikon terang
+     * tetap terbaca.
      */
-    fun glassTintColors(palette: ThemePalette): IntArray = intArrayOf(
-        Color.argb(46, 255, 255, 255), // sheen specular atas
-        translucent(palette.card, 0.40f), // isi tengah ~40%
-        translucent(palette.card, 0.32f) // isi bawah sedikit lebih tipis
-    )
+    fun glassTintColors(palette: ThemePalette): IntArray =
+        if (isLight(palette.card)) intArrayOf(
+            Color.argb(120, 255, 255, 255), // sheen specular atas
+            Color.argb(184, 255, 255, 255), // isi tengah ~72% putih
+            Color.argb(158, 255, 255, 255) // isi bawah ~62% putih
+        ) else intArrayOf(
+            Color.argb(60, 255, 255, 255), // sheen specular atas
+            translucent(palette.card, 0.55f), // isi tengah ~55%
+            translucent(palette.card, 0.45f) // isi bawah ~45%
+        )
+
+    /** Terang/gelap kartu dari luminance relatif (batas 0.5). */
+    private fun isLight(color: Int): Boolean {
+        val r = Color.red(color) / 255.0
+        val g = Color.green(color) / 255.0
+        val b = Color.blue(color) / 255.0
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.5
+    }
 
     private fun translucent(color: Int, alpha: Float): Int {
         val a = (255 * alpha).toInt().coerceIn(0, 255)

@@ -483,7 +483,9 @@
     </ScrollView>
 </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <!-- ============ BOTTOM DOCK KACA (v1.1.8) ============ -->
+    <!-- ============ BOTTOM DOCK KACA (v1.1.8; v1.1.41: pill putih
+         frosted ala screenshot — lebih putih + ikon garis outline,
+         melayang 16dp dari tepi) ============ -->
     <!-- Pill mengambang + bubble Cari bundar menonjol 18dp ke atas.
          Background pill + bubble diisi runtime dari ThemeHelper agar
          ikut tema (terang/sepia/malam) — di XML sengaja tanpa
@@ -494,9 +496,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="12dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
         android:paddingTop="18dp">
 
         <!-- v1.1.12: latar kaca pill — GlassView menggambar blur latar
@@ -504,12 +506,12 @@
         <com.hozinking.cerpen.GlassView
             android:id="@+id/dock_bar_bg"
             android:layout_width="match_parent"
-            android:layout_height="60dp" />
+            android:layout_height="64dp" />
 
         <LinearLayout
             android:id="@+id/dock_bar"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
+            android:layout_height="64dp"
             android:elevation="8dp"
             android:orientation="horizontal">
 
@@ -524,12 +526,15 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <!-- v1.1.41: ikon garis outline (bukan emoji) — tint
+                     diisi runtime dari styleDockItem. -->
+                <ImageView
                     android:id="@+id/dock_cerbung_icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📖"
-                    android:textSize="20sp" />
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:src="@drawable/ic_nav_home"
+                    android:tint="@color/muted"
+                    android:contentDescription="Cerbung" />
 
                 <TextView
                     android:id="@+id/dock_cerbung_label"
@@ -550,12 +555,13 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/dock_berita_icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📰"
-                    android:textSize="20sp" />
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:src="@drawable/ic_nav_play"
+                    android:tint="@color/muted"
+                    android:contentDescription="Berita" />
 
                 <TextView
                     android:id="@+id/dock_berita_label"
@@ -583,12 +589,13 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <ImageView
                     android:id="@+id/dock_komik_icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📚"
-                    android:textSize="20sp" />
+                    android:layout_width="26dp"
+                    android:layout_height="26dp"
+                    android:src="@drawable/ic_nav_book"
+                    android:tint="@color/muted"
+                    android:contentDescription="Komik" />
 
                 <TextView
                     android:id="@+id/dock_komik_label"
@@ -609,12 +616,16 @@
                 android:gravity="center"
                 android:orientation="vertical">
 
-                <TextView
+                <!-- v1.1.41: slot avatar bundar (ikon orang di dalam
+                     lingkaran, seperti avatar di screenshot) — aplikasi
+                     tidak menyimpan foto profil, jadi ini ikon avatar. -->
+                <ImageView
                     android:id="@+id/dock_koleksi_icon"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="👤"
-                    android:textSize="20sp" />
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:src="@drawable/ic_nav_avatar"
+                    android:tint="@color/muted"
+                    android:contentDescription="Koleksi" />
 
                 <TextView
                     android:id="@+id/dock_koleksi_label"
@@ -640,13 +651,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent" />
 
-            <TextView
+            <ImageView
                 android:id="@+id/dock_cari_icon"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
                 android:layout_gravity="center"
-                android:text="🔍"
-                android:textSize="24sp" />
+                android:src="@drawable/ic_nav_search"
+                android:tint="@color/ink"
+                android:contentDescription="Cari" />
         </FrameLayout>
     </FrameLayout>
 </FrameLayout>

@@ -14,6 +14,7 @@ import android.view.animation.OvershootInterpolator
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -49,12 +50,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var appFooter: TextView
     private lateinit var mainScroll: ScrollView
     // v1.1.10: bottom dock kaca — satu sel = ikon + label; tab 3 = Koleksi.
-    private data class DockItem(val cell: View, val icon: TextView, val label: TextView, val tab: Int)
+    // v1.1.41: ikon = ImageView vector garis (dulu TextView emoji).
+    private data class DockItem(val cell: View, val icon: ImageView, val label: TextView, val tab: Int)
     private lateinit var dockBar: LinearLayout
     private lateinit var dockBarBg: GlassView
     private lateinit var dockCari: View
     private lateinit var dockCariBg: GlassView
-    private lateinit var dockCariIcon: TextView
+    private lateinit var dockCariIcon: ImageView
     // v1.1.14: remote config — banner di atas daftar + spacer dock (tempat bubble Cari).
     private lateinit var remoteBanner: TextView
     private lateinit var dockSpacer: View
@@ -479,7 +481,9 @@ class MainActivity : AppCompatActivity() {
         // stroke); dockBar/dockCari sendiri transparan.
         dockBarBg.setGlass(palette, GlassView.SHAPE_PILL)
         dockCariBg.setGlass(palette, GlassView.SHAPE_OVAL)
-        dockCariIcon.setTextColor(palette.onAccent)
+        // v1.1.41: ikon Cari garis gelap di atas kaca putih (dulu teks
+        // emoji warna onAccent — tak terbaca di atas kaca terang).
+        dockCariIcon.imageTintList = ColorStateList.valueOf(palette.ink)
         // v1.1.14: terapkan lagi urutan/label/banner/aksen config (tema
         // bisa berubah dari Settings — styling banner ikut palet baru).
         applyRemoteConfig(remoteConfig)
@@ -660,8 +664,9 @@ class MainActivity : AppCompatActivity() {
     private fun styleDockItem(item: DockItem, selected: Boolean, palette: ThemePalette) {
         // v1.1.14: aksen config menggantikan palette.accent HANYA untuk
         // label/ikon tab aktif di dock — warna lain tidak berubah.
+        // v1.1.41: ikon vector di-tint (dulu warna teks emoji).
         val color = if (selected) remoteAccent ?: palette.accent else palette.muted
-        item.icon.setTextColor(color)
+        item.icon.imageTintList = ColorStateList.valueOf(color)
         item.label.setTextColor(color)
     }
 
