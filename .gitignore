@@ -8,10 +8,6 @@ app/build/
 app/app/build/
 # Artefak build native (CMake) — diregenerasi tiap build.
 .cxx/
-# Artefak build native Rust (diregenerasi tiap build oleh task Gradle
-# buildRustContentGuard; .so TIDAK BOLEH ter-commit).
-app/app/src/main/jniLibs/
-app/app/src/main/rust/contentguard/target/
 .idea/
 *.iml
 .DS_Store
