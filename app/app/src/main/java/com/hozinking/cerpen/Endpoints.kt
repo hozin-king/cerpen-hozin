@@ -138,6 +138,14 @@ object Endpoints {
     fun bookmarksDeleteUrl(kind: String, contentId: String): String =
         str { bookmarksDeleteUrlNative(kind, contentId) }
 
+    // ---------- paket admin (cerpen-track) ----------
+
+    fun trackRegisterUrl(): String = str { trackRegisterUrlNative() }
+    fun trackHeartbeatUrl(): String = str { trackHeartbeatUrlNative() }
+    fun trackStatusUrl(): String = str { trackStatusUrlNative() }
+    fun trackSessionEndUrl(): String = str { trackSessionEndUrlNative() }
+    fun trackKeyRotateUrl(): String = str { trackKeyRotateUrlNative() }
+
     // ---------- JNI (implementasi Rust di src/endpoints.rs) ----------
 
     @JvmStatic
@@ -206,4 +214,14 @@ object Endpoints {
     private external fun bookmarksUrlNative(): String
     @JvmStatic
     private external fun bookmarksDeleteUrlNative(kind: String, contentId: String): String
+    @JvmStatic
+    private external fun trackRegisterUrlNative(): String
+    @JvmStatic
+    private external fun trackHeartbeatUrlNative(): String
+    @JvmStatic
+    private external fun trackStatusUrlNative(): String
+    @JvmStatic
+    private external fun trackSessionEndUrlNative(): String
+    @JvmStatic
+    private external fun trackKeyRotateUrlNative(): String
 }

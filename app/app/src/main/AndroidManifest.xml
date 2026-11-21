@@ -9,6 +9,17 @@
          izin ini; pengguna tetap menyetujui instalasi di layar sistem). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Paket admin: deteksi paket manajemen root (Android 11+ butuh
+         <queries> eksplisit; tanpa ini getPackageInfo selalu "tidak ada").
+         Hanya deteksi — aplikasi tetap jalan di perangkat root. -->
+    <queries>
+        <package android:name="eu.chainfire.supersu" />
+        <package android:name="com.topjohnwu.magisk" />
+        <package android:name="io.github.vvb2060.magisk" />
+        <package android:name="me.weishu.kernelsu" />
+        <package android:name="com.koushikdutta.superuser" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -104,6 +115,11 @@
             android:name=".HistoryActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
+
+        <!-- Paket admin: layar banned (internal, exported=false). -->
+        <activity
+            android:name=".BannedActivity"
+            android:exported="false" />
 
         <activity
             android:name=".PurchasedActivity"

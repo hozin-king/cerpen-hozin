@@ -142,15 +142,28 @@ class KomikReaderActivity : AppCompatActivity() {
         }
         // v1.1.32: lanjutkan refresh live angka sosial.
         socialBar?.startLiveUpdates()
+        // Paket admin: foreground + heartbeat + sesi baca saat ini.
+        AdminGate.setForeground(this)
+        AdminGate.startHeartbeat(this)
+        if (bound && komikId.isNotEmpty()) {
+            AdminGate.noteReadingSession(
+                AdminGate.ReadingSession("komik", komikId, 1, episodeNo, System.currentTimeMillis())
+            )
+        }
     }
 
     override fun onPause() {
         super.onPause()
         saveProgress()
+        // Paket admin: lepas foreground + hentikan heartbeat.
+        AdminGate.clearForeground(this)
+        AdminGate.stopHeartbeat()
         // v1.1.30: hentikan pelacak baca + kirim sisa detik (best-effort).
         tickHandler.removeCallbacks(tickRunnable)
         tracker.noteVisible(false)
         flushReading(force = true)
+        // Paket admin: tutup sesi baca di server (setelah flush terakhir).
+        AdminGate.endReadingSession(this)
         // v1.1.32: hentikan refresh live angka sosial.
         socialBar?.stopLiveUpdates()
     }
@@ -179,6 +192,8 @@ class KomikReaderActivity : AppCompatActivity() {
         if (!force && !tracker.flushDue()) return
         val seconds = tracker.takeFlush()
         if (seconds <= 0) return
+        // Detik yang sama juga dilaporkan ke heartbeat admin (cerpen-track).
+        AdminGate.addReadingSeconds(seconds)
         Thread {
             val r = CoinApi.reportReading(this, "komik", komikId, 1, episodeNo, seconds, tracker.maxScroll)
             if (r.status in 200..299) {

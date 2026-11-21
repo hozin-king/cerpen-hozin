@@ -11,8 +11,8 @@ android {
         applicationId = "com.hozinking.cerpen"
         minSdk = 26
         targetSdk = 34
-        versionCode = 47
-        versionName = "1.1.41"
+        versionCode = 48
+        versionName = "1.1.42"
     }
 
     // Signing rilis: keystore PERSISTEN (bukan debug keystore runner).
@@ -136,6 +136,11 @@ dependencies {
     implementation("io.noties.markwon:html:4.6.2")
     // v1.1.38: animasi logo Lottie di splash screen (looping, JSON <100KB).
     implementation("com.airbnb.android:lottie:6.4.0")
+    // Paket admin (cerpen-admin-batch): kunci API di penyimpanan
+    // terenkripsi — JANGAN simpan kunci di SharedPreferences biasa.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    // Paket admin: token Play Integrity (deteksi integritas, hanya lapor).
+    implementation("com.google.android.play:integrity:1.4.0")
 
     // Unit test: org.json asli (android.jar hanya berisi stub yang melempar
     // "Stub!") agar NewsDetailsFormatterTest bisa jalan di JVM.

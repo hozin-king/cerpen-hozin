@@ -41,6 +41,15 @@ class SplashActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_splash)
+        // Paket admin: cek ban SEBELUM MainActivity (single-flight dengan
+        // Main — hasil dipakai bersama 60 detik). Di-ban -> layar banned,
+        // bukan Main. Registrasi guest best-effort di latar.
+        AdminGate.checkOnLaunch(this) { reason, exp ->
+            if (!isFinishing && !isDestroyed) {
+                AdminEnforcer.showBanned(this, reason, exp)
+            }
+        }
+        AdminGate.registerIfNeeded(this)
         val palette = ThemeHelper.palette(ProgressStore.getTheme(this))
         findViewById<View>(R.id.splash_root).setBackgroundColor(palette.bg)
         val title = findViewById<android.widget.TextView>(R.id.splash_title)
