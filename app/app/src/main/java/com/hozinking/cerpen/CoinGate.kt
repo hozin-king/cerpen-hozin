@@ -113,9 +113,12 @@ object CoinGate {
         season: Int,
         no: Int,
         locallyRead: Boolean,
-        nowMs: Long
+        nowMs: Long,
+        /** God-mode admin (21 Nov 2026): grant cache valid -> terbuka. */
+        isAdmin: Boolean = false
     ): LockState {
         val key = unlockKey(kind, targetId, season, no)
+        if (isAdmin) return LockState.Unlocked
         if (key in state.unlocks || locallyRead) return LockState.Unlocked
         val p = priceFor(state.pricing, kind, targetId, season, no)
         if (p.free) return LockState.Free

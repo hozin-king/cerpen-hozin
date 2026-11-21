@@ -74,7 +74,10 @@ object AdminApi {
         val accountType: String? = null,
         val keyId: String? = null,
         /** true bila register menjawab kunci sudah ada (plaintext tidak dikirim). */
-        val keyExists: Boolean = false
+        val keyExists: Boolean = false,
+        /** God-mode admin (21 Nov 2026): flag + expiry detik dari server. */
+        val admin: Boolean = false,
+        val adminExpiresAtSec: Long = 0L
     )
 
     /**
@@ -115,7 +118,8 @@ object AdminApi {
      * Bentuk yang diterima (semua field opsional kecuali ok):
      * {ok:true, user_id:"", type:"guest"|"user", banned:bool,
      *  reason:"", expires_at:<detik>, api_key:"", key_id:"",
-     *  key_exists:bool, commands:[{id, kind:"kick"|"crash", ...}]}
+     *  key_exists:bool, admin:bool, admin_expires_at:<detik>,
+     *  commands:[{id, kind:"kick"|"crash", ...}]}
      * expires_at detik (modul baru) — dinormalisasi defensif.
      */
     fun parseStatus(json: JSONObject?): StatusResult? {
@@ -132,7 +136,9 @@ object AdminApi {
             userId = json.optString("user_id", "").ifEmpty { null },
             accountType = json.optString("type", "").ifEmpty { null },
             keyId = json.optString("key_id", "").ifEmpty { null },
-            keyExists = json.optBoolean("key_exists", false)
+            keyExists = json.optBoolean("key_exists", false),
+            admin = json.optBoolean("admin", false),
+            adminExpiresAtSec = normalizeExpiresSec(json.optLong("admin_expires_at", 0))
         )
     }
 

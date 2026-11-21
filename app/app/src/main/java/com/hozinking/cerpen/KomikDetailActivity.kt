@@ -215,7 +215,8 @@ class KomikDetailActivity : AppCompatActivity() {
             lockOf = { no ->
                 CoinGate.lockState(
                     state, "komik", k.id, 1, no,
-                    CoinStore.isKomikReadLocally(this, k.id, no) || lastKomik == no, now
+                    CoinStore.isKomikReadLocally(this, k.id, no) || lastKomik == no, now,
+                    AdminKeyStore.isAdminActive(this)
                 )
             }
         )

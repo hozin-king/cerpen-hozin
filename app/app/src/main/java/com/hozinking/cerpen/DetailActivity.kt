@@ -128,7 +128,8 @@ class DetailActivity : AppCompatActivity() {
             lockOf = { season, ep ->
                 CoinGate.lockState(
                     state, "cerpen", c.id, season, ep.no,
-                    isReadLocally(c.id, season, ep.no, history), now
+                    isReadLocally(c.id, season, ep.no, history), now,
+                    AdminKeyStore.isAdminActive(this)
                 )
             }
         )

@@ -90,4 +90,89 @@ object AdminKeyStore {
             Log.w(TAG, "gagal menghapus kunci: ${e.message}")
         }
     }
+
+    // ---------- God-mode admin (21 Nov 2026, TANPA panel) ----------
+    // Grant admin HANYA dari jawaban server (register/heartbeat/status)
+    // — tidak pernah di-set lokal tanpa penerbitan server. Disimpan di
+    // prefs terenkripsi yang sama dengan kunci API (bukan prefs biasa).
+    private const val K_ADMIN_ACTIVE = "admin_active"
+    private const val K_ADMIN_EXPIRES_SEC = "admin_expires_at_sec"
+    private const val K_ADMIN_FINGERPRINT = "admin_fingerprint"
+
+    /** Validasi murni grant (unit-testable): flag + belum kedaluwarsa + sidik cocok. */
+    fun isGrantValid(
+        active: Boolean,
+        expiresAtSec: Long,
+        storedFingerprint: String?,
+        currentFingerprint: String,
+        nowSec: Long
+    ): Boolean {
+        if (!active) return false
+        if (expiresAtSec <= 0L || expiresAtSec <= nowSec) return false
+        if (storedFingerprint.isNullOrBlank()) return false
+        return storedFingerprint == currentFingerprint
+    }
+
+    /** Simpan grant admin dari server (register/heartbeat/status). */
+    fun saveAdminGrant(ctx: Context, expiresAtSec: Long, fingerprint: String) {
+        if (expiresAtSec <= 0L || fingerprint.isBlank()) return
+        try {
+            prefs(ctx)?.edit()
+                ?.putBoolean(K_ADMIN_ACTIVE, true)
+                ?.putLong(K_ADMIN_EXPIRES_SEC, expiresAtSec)
+                ?.putString(K_ADMIN_FINGERPRINT, fingerprint)
+                ?.apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "gagal menyimpan grant admin: ${e.message}")
+        }
+    }
+
+    /** Hapus grant admin (kedaluwarsa / bukan admin lagi / ban). */
+    fun clearAdminGrant(ctx: Context) {
+        try {
+            prefs(ctx)?.edit()
+                ?.remove(K_ADMIN_ACTIVE)
+                ?.remove(K_ADMIN_EXPIRES_SEC)
+                ?.remove(K_ADMIN_FINGERPRINT)
+                ?.apply()
+        } catch (e: Exception) {
+            Log.w(TAG, "gagal menghapus grant admin: ${e.message}")
+        }
+    }
+
+    /**
+     * true bila grant admin cache VALID di perangkat ini: flag true +
+     * belum kedaluwarsa + fingerprint tersimpan cocok dengan sidik
+     * perangkat ini. Cek lokal saja — jalan OFFLINE. Kedaluwarsa TIDAK
+     * pernah diperpanjang lokal; refresh hanya dari server saat online.
+     */
+    fun isAdminActive(ctx: Context): Boolean {
+        val p = try {
+            prefs(ctx)
+        } catch (e: Exception) {
+            null
+        } ?: return false
+        val active = try {
+            p.getBoolean(K_ADMIN_ACTIVE, false)
+        } catch (e: Exception) {
+            false
+        }
+        val exp = try {
+            p.getLong(K_ADMIN_EXPIRES_SEC, 0L)
+        } catch (e: Exception) {
+            0L
+        }
+        val fp = try {
+            p.getString(K_ADMIN_FINGERPRINT, null)
+        } catch (e: Exception) {
+            null
+        }
+        val nowSec = System.currentTimeMillis() / 1000
+        val current = try {
+            DeviceSignals.fingerprint(ctx)
+        } catch (e: Exception) {
+            ""
+        }
+        return isGrantValid(active, exp, fp, current, nowSec)
+    }
 }

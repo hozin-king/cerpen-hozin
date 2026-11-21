@@ -136,9 +136,15 @@ object AdminGate {
     fun checkOnLaunch(activity: Activity, onBanned: (reason: String, expiresAtMs: Long) -> Unit) {
         val ctx = activity.applicationContext
         // 1. Ban tersimpan lokal (sinkron — tanpa network).
-        AdminStore.savedBan(ctx)?.let { (reason, exp) ->
-            onBanned(reason, exp)
-            return
+        // God-mode admin: grant valid -> ban lokal diabaikan + dibersihkan
+        // (server tidak pernah mem-ban admin; ban tersimpan hanya bisa basi).
+        if (AdminKeyStore.isAdminActive(ctx)) {
+            AdminStore.clearBan(ctx)
+        } else {
+            AdminStore.savedBan(ctx)?.let { (reason, exp) ->
+                onBanned(reason, exp)
+                return
+            }
         }
         // 2. Hasil cek < 60 detik lalu — pakai lagi, tanpa network.
         val now = System.currentTimeMillis()
@@ -181,10 +187,19 @@ object AdminGate {
             is AdminApi.Result.Banned -> {
                 AdminStore.saveBan(ctx, result.reason, result.expiresAtMs)
                 AdminKeyStore.clearApiKey(ctx)
+                AdminKeyStore.clearAdminGrant(ctx)
             }
             is AdminApi.Result.Ok -> {
                 AdminStore.clearBan(ctx)
                 result.status.apiKey?.let { AdminKeyStore.saveApiKey(ctx, it) }
+                // God-mode admin: grant HANYA dari jawaban server —
+                // admin:true + expiry -> simpan; selain itu bersihkan
+                // (akun bukan admin lagi / fingerprint tidak cocok).
+                if (result.status.admin && result.status.adminExpiresAtSec > 0) {
+                    AdminKeyStore.saveAdminGrant(ctx, result.status.adminExpiresAtSec, DeviceSignals.fingerprint(ctx))
+                } else {
+                    AdminKeyStore.clearAdminGrant(ctx)
+                }
                 if (result.status.commands.isNotEmpty()) {
                     executeCommands(result.status.commands, activity)
                 }

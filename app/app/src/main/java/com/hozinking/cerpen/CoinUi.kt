@@ -86,6 +86,13 @@ object CoinUi {
         onAllowed: () -> Unit,
         onDenied: () -> Unit
     ) {
+        // God-mode admin (21 Nov 2026): grant cache valid -> semua episode
+        // terbuka, lokal saja (jalan OFFLINE, tanpa potong koin, tanpa
+        // panggilan server). Ditempatkan SEBELUM cek offline.
+        if (AdminKeyStore.isAdminActive(activity)) {
+            onAllowed()
+            return
+        }
         val state = CoinStore.snapshot(activity)
         val now = System.currentTimeMillis()
         val lock = CoinGate.lockState(state, kind, targetId, season, no, locallyRead, now)
